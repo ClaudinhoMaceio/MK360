@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#020617">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MK 360">
+    <title>MK 360 - Sistema de Vídeo Plataforma</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <!-- Utilizando a versão 0.11.6 do ffmpeg.wasm -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        .recording-pulse { animation: pulse 1.5s infinite; }
+        #previewCanvas { background: #000; width: 100%; max-width: 500px; border-radius: 1.5rem; border: 1px solid rgba(234,179,8,.22); box-shadow: 0 24px 56px rgba(2,6,23,.55), 0 0 40px rgba(234,179,8,0.2); }
+        .bg-glass { background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.72)); backdrop-filter: blur(12px); }
+        input[type="file"]::file-selector-button {
+            background: #eab308; color: black; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-right: 10px;
+        }
+        input[type="range"] { accent-color: #eab308; }
+        input[type="text"] { background: rgba(255,255,255,0.05); border: 1px solid rgba(234, 179, 8, 0.3); color: white; }
+        html, body { overscroll-behavior: none; }
+        body { -webkit-tap-highlight-color: transparent; background-image: radial-gradient(circle at top, rgba(234,179,8,.11), transparent 35%), radial-gradient(circle at 20% 80%, rgba(59,130,246,.10), transparent 30%); }
+        button { touch-action: manipulation; }
+        .panel-soft { background: linear-gradient(180deg, rgba(15,23,42,.72), rgba(15,23,42,.48)); border: 1px solid rgba(255,255,255,.08); box-shadow: 0 12px 40px rgba(2,6,23,.5); }
+        .field-label { color: #facc15; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; }
+        .floating-note { background: rgba(30,41,59,.88); border: 1px solid rgba(250,204,21,.25); color: #e2e8f0; font-size: 11px; padding: 10px 12px; border-radius: 12px; }
+
+        /* Mobile-first refinements */
+        @media (max-width: 480px) {
+            body { padding: 10px; }
+            #previewCanvas { max-width: 100%; border-radius: 1rem; }
+            #startBtn { padding-top: 18px; padding-bottom: 18px; font-size: 1rem; }
+            #resultArea .bg-glass { padding: 1rem; border-radius: 1.25rem; }
+            #countdown { font-size: 6rem; }
+            #recordingUI { top: 10px; left: 10px; padding: 6px 10px; }
+        }
+
+        @media (max-height: 740px) {
+            header { margin-bottom: 8px; }
+            #setupArea { margin-bottom: 10px; padding: 12px; }
+            section.w-full.max-w-md.mt-6.space-y-4 { margin-top: 10px; }
+        }
+
+        #installBtn {
+            display: none;
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: #f8fafc;
+            font-weight: 900;
+            padding: 12px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: .08em;
+        }
+        .btn-soft {
+            width: 100%;
+            background: linear-gradient(180deg, #facc15, #eab308);
+            color: #111827;
+            font-weight: 900;
+            padding: 14px;
+            border-radius: 14px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: .08em;
+            text-align: center;
+            display: inline-block;
+        }
+        .result-card {
+            border: 1px solid rgba(250, 204, 21, 0.25);
+            background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.97));
+            box-shadow: 0 16px 36px rgba(2, 6, 23, .28);
+        }
+        .tab-shell { border: 1px solid rgba(250,204,21,.28); border-radius: 18px; overflow: hidden; }
+        .tab-header { width: 100%; background: linear-gradient(180deg, rgba(250,204,21,.18), rgba(234,179,8,.12)); color: #fef08a; font-size: 11px; letter-spacing: .16em; font-weight: 900; text-transform: uppercase; padding: 12px 14px; text-align: left; border: 0; }
+        .tab-body { padding: 14px; background: rgba(15,23,42,.55); }
+        .effect-card { background: rgba(15,23,42,.6); border: 1px solid rgba(250,204,21,.18); border-radius: 12px; padding: 10px; }
+        .effect-select { width: 100%; background: rgba(15,23,42,.8); border: 1px solid rgba(250,204,21,.35); color: #f8fafc; border-radius: 10px; padding: 8px; font-size: 12px; }
+        .btn-ghost { width: 100%; background: transparent; border: 1px solid rgba(148,163,184,.4); color: #cbd5e1; font-weight: 800; padding: 12px; border-radius: 12px; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
+        .drive-status-ok { color: #6ee7b7; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+        .drive-status-error { color: #fca5a5; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    </style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen flex flex-col items-center p-4">
+
+    <!-- Cabeçalho -->
+    <header class="w-full max-w-md flex justify-between items-center mb-4">
+        <div class="flex flex-col">
+            <h1 class="text-3xl font-black bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent tracking-tighter">MK 360</h1>
+            <span id="systemStatus" class="text-xs text-slate-400 font-mono uppercase tracking-widest">Pronto para o Evento</span>
+        </div>
+        <div class="flex items-center gap-3">
+        <div id="connectionDot" class="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.8)]"></div>
+            <button id="settingsGearBtn" class="btn-ghost !w-auto !px-4 !py-2" title="Configurações">⚙️</button>
+        </div>
+    </header>
+
+    <!-- Configurações -->
+    <section id="setupArea" class="hidden w-full max-w-md panel-soft p-3 rounded-3xl mb-6">
+        <div class="tab-shell">
+            <div class="tab-header flex items-center justify-between">
+                <span>Configurações do Evento</span>
+                <button id="closeSettingsBtn" class="btn-ghost !w-auto !px-3 !py-1">Fechar</button>
+            </div>
+            <div id="configBody" class="tab-body space-y-4">
+        <div class="space-y-1">
+                    <label class="block field-label">Nome do Evento (Pasta/Ficheiro)</label>
+            <input type="text" id="partyName" placeholder="Ex: Festa_da_Empresa" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+        </div>
+
+        <div class="space-y-1">
+                    <label class="block field-label text-center mb-2">Duração: <span id="timeLabel" class="text-white text-sm">10</span>s</label>
+                    <input type="range" id="durationInput" min="3" max="30" value="10" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+        
+        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
+            <div class="space-y-1">
+                        <label class="block field-label">Moldura (PNG)</label>
+                <input type="file" id="overlayInput" accept="image/png" class="text-[10px] text-slate-400 w-full overflow-hidden">
+            </div>
+            <div class="space-y-1">
+                        <label class="block field-label">Música (MP3)</label>
+                        <input type="file" id="musicInput" accept="audio/mpeg,audio/mp3,audio/*" class="text-[10px] text-slate-400 w-full overflow-hidden">
+                    </div>
+                </div>
+
+                <div class="effect-card grid grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block field-label">Velocidade</label>
+                        <select id="speedEffect" class="effect-select">
+                            <option value="1">Normal (1x)</option>
+                            <option value="0.5">Câmera Lenta (0.5x)</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block field-label">Direção</label>
+                        <select id="directionEffect" class="effect-select">
+                            <option value="normal">Normal</option>
+                            <option value="reverse">Reverso (Ida e Volta)</option>
+                            <option value="boomerang">Boomerang</option>
+                        </select>
+                    </div>
+                </div>
+                <p id="effectDurationHint" class="text-[11px] text-slate-300 font-bold">Duração final estimada: 10s</p>
+                <div class="space-y-1 pt-2 border-t border-white/10">
+                    <label class="block field-label">Webhook Google Drive (Opcional)</label>
+                    <input type="text" id="driveWebhookInput" placeholder="Cole aqui a URL do Web App (Apps Script)" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+                    <p class="text-[10px] text-slate-400">Se preenchido, o vídeo final é enviado automaticamente ao finalizar.</p>
+                    <div class="grid grid-cols-2 gap-2 pt-2">
+                        <button id="saveDriveBtn" class="btn-ghost">Salvar Drive</button>
+                        <button id="testDriveBtn" class="btn-ghost">Testar Conexão</button>
+                    </div>
+                    <p id="driveConnectStatus" class="text-[11px] text-slate-400 font-bold">Drive não configurado.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Visualizador Principal -->
+    <main class="relative w-full max-w-md flex flex-col items-center">
+        <canvas id="previewCanvas"></canvas>
+        <div id="countdown" class="absolute inset-0 z-30 flex items-center justify-center text-9xl font-black hidden text-yellow-500 drop-shadow-[0_0_30px_rgba(234,179,8,0.8)]">3</div>
+        <div id="recordingUI" class="absolute top-6 left-6 flex items-center space-x-3 hidden bg-black/50 px-4 py-2 rounded-full backdrop-blur-md">
+            <div class="w-3 h-3 bg-red-600 rounded-full recording-pulse"></div>
+            <span class="text-xs font-black tracking-widest uppercase text-white">Gravando</span>
+        </div>
+    </main>
+
+    <!-- Painel de Controlo -->
+    <section class="w-full max-w-md mt-6 space-y-4">
+        <div id="inlineNotice" class="floating-note hidden"></div>
+        <div id="effectActiveBadge" class="floating-note hidden"></div>
+        <button id="installBtn">Instalar App MK 360</button>
+        <button id="startBtn" class="w-full bg-gradient-to-b from-yellow-400 to-yellow-600 hover:from-yellow-300 hover:to-yellow-500 text-black font-black py-5 rounded-2xl shadow-[0_10px_20px_rgba(234,179,8,0.3)] transition-all active:scale-95 text-xl uppercase tracking-tighter">
+            Iniciar MK 360
+        </button>
+        <button id="finalizeEventBtn" class="btn-ghost">Finalizar Evento</button>
+
+        <!-- Área de Resultado -->
+        <div id="resultArea" class="hidden space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700">
+            <div class="bg-glass border border-yellow-500/30 p-6 rounded-[2rem] shadow-2xl">
+                <h3 id="resultTitle" class="text-center font-black text-yellow-500 mb-4 tracking-widest uppercase italic text-sm">Processando...</h3>
+                <video id="finalVideo" class="w-full rounded-2xl mb-6 shadow-lg border border-white/10" controls loop playsinline></video>
+                
+                <div class="flex flex-col items-center result-card p-6 rounded-2xl">
+                    <div id="qrcode"></div>
+                    <p id="qrMessage" class="text-slate-900 text-[10px] font-black mt-4 uppercase tracking-widest text-center">Gerando link do download...</p>
+                    <a id="directDownloadBtn" class="btn-soft mt-4 hidden" href="#" download>Baixar Agora</a>
+                    <a id="openInBrowserBtn" class="btn-ghost mt-3 hidden" target="_blank" rel="noopener noreferrer">Visualizar no Navegador</a>
+                    <button id="shareAirdropBtn" class="btn-ghost mt-3 hidden">Compartilhar pelo AirDrop</button>
+                    <a id="shareWhatsappBtn" class="btn-ghost mt-3 hidden" target="_blank" rel="noopener noreferrer">Compartilhar pelo WhatsApp</a>
+                    <button id="shareWebBtn" class="btn-ghost mt-3 hidden">Compartilhar vídeo via Web</button>
+                </div>
+                <p id="thanksMessage" class="hidden text-center text-yellow-300 text-xs font-black uppercase tracking-widest mt-4">A MK agradece sua participação. Muito obrigado!</p>
+                <p id="finalizedMessage" class="hidden text-center text-emerald-300 text-xs font-black uppercase tracking-widest mt-2">Vídeo finalizado com sucesso!</p>
+                <p id="driveStatusMessage" class="hidden text-center text-cyan-300 text-[11px] font-black uppercase tracking-widest mt-2"></p>
+                
+                <button id="nextVideoBtn" class="w-full mt-6 bg-slate-800 text-slate-300 py-4 rounded-xl text-xs font-black uppercase tracking-widest border border-white/5 transition-colors">
+                    Próximo Vídeo
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modal de Erro -->
+    <div id="errorModal" class="fixed inset-0 bg-black/95 flex items-center justify-center p-8 hidden z-50">
+        <div class="bg-slate-900 border-2 border-red-600 p-8 rounded-3xl max-w-xs text-center">
+            <div class="text-red-600 text-5xl mb-4">⚠️</div>
+            <h2 class="text-xl font-black text-white mb-3 uppercase">Erro de Segurança</h2>
+            <p id="errorMessage" class="text-sm text-slate-400 mb-6"></p>
+            <button onclick="document.getElementById('errorModal').classList.add('hidden')" class="w-full bg-red-600 text-white py-3 rounded-xl font-black uppercase">Fechar</button>
+        </div>
+    </div>
+
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        
+        // FFmpeg pode falhar em ambientes sem isolamento COOP/COEP.
+        // Mantemos a instância para tentar processamento avançado quando disponível.
+        const ffmpeg = createFFmpeg({ 
+            log: true, 
+            corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js' 
+        });
+        
+        let stream, recorder, chunks = [];
+        let overlayImg = null;
+        let musicFile = null;
+        let recordingAudioContext = null;
+        let recordingMusicElement = null;
+        let recordingMusicObjectUrl = null;
+        let recordedHasAudio = false;
+        const DRIVE_QUEUE_DB = 'mk360_drive_queue_db';
+        const DRIVE_QUEUE_STORE = 'pending_uploads';
+
+        const video = document.createElement('video');
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const countdownEl = document.getElementById('countdown');
+        const statusEl = document.getElementById('systemStatus');
+        const durationInput = document.getElementById('durationInput');
+        const timeLabel = document.getElementById('timeLabel');
+        const partyNameInput = document.getElementById('partyName');
+        const settingsGearBtn = document.getElementById('settingsGearBtn');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const configBody = document.getElementById('configBody');
+        const speedEffectInput = document.getElementById('speedEffect');
+        const directionEffectInput = document.getElementById('directionEffect');
+        const effectDurationHint = document.getElementById('effectDurationHint');
+        const driveWebhookInput = document.getElementById('driveWebhookInput');
+        const saveDriveBtn = document.getElementById('saveDriveBtn');
+        const testDriveBtn = document.getElementById('testDriveBtn');
+        const driveConnectStatus = document.getElementById('driveConnectStatus');
+        const installBtn = document.getElementById('installBtn');
+        const finalizeEventBtn = document.getElementById('finalizeEventBtn');
+        const nextVideoBtn = document.getElementById('nextVideoBtn');
+        const inlineNotice = document.getElementById('inlineNotice');
+        const effectActiveBadge = document.getElementById('effectActiveBadge');
+        const qrMessage = document.getElementById('qrMessage');
+        const directDownloadBtn = document.getElementById('directDownloadBtn');
+        const openInBrowserBtn = document.getElementById('openInBrowserBtn');
+        const shareAirdropBtn = document.getElementById('shareAirdropBtn');
+        const shareWhatsappBtn = document.getElementById('shareWhatsappBtn');
+        const shareWebBtn = document.getElementById('shareWebBtn');
+        const thanksMessage = document.getElementById('thanksMessage');
+        const finalizedMessage = document.getElementById('finalizedMessage');
+        const driveStatusMessage = document.getElementById('driveStatusMessage');
+        const isHttpContext = location.protocol === 'http:' || location.protocol === 'https:';
+        const DEFAULT_DRIVE_WEBHOOK = 'https://script.google.com/macros/s/AKfycbzMWxVo2vHVU3GeW1zfPOhOSk1funU1amVZ57agujQIx02tjJ980EOadw4IGwEcG2e5/exec';
+        let deferredInstallPrompt = null;
+        let isRecording = false;
+        let isEventFinalized = false;
+
+        function updateEffectDurationHint() {
+            const base = Number(durationInput.value || 0);
+            const direction = directionEffectInput.value;
+            const speed = Number(speedEffectInput.value || 1);
+            let finalSeconds = base;
+            if (direction === 'reverse' || direction === 'boomerang') finalSeconds *= 2;
+            if (speed > 0 && speed < 1) finalSeconds = finalSeconds / speed;
+            effectDurationHint.innerText = `Duração final estimada: ${Math.round(finalSeconds)}s`;
+
+            const hasSpeedEffect = speed !== 1;
+            const hasDirectionEffect = direction !== 'normal';
+            if (hasSpeedEffect || hasDirectionEffect) {
+                const labels = [];
+                if (hasSpeedEffect) labels.push(`Velocidade ${speed}x`);
+                if (hasDirectionEffect) labels.push(`Direção ${direction}`);
+                effectActiveBadge.innerText = `Efeito ativo: ${labels.join(' | ')}`;
+                effectActiveBadge.classList.remove('hidden');
+            } else {
+                effectActiveBadge.classList.add('hidden');
+            }
+        }
+
+        durationInput.oninput = () => {
+            timeLabel.innerText = durationInput.value;
+            updateEffectDurationHint();
+        };
+        speedEffectInput.onchange = updateEffectDurationHint;
+        directionEffectInput.onchange = updateEffectDurationHint;
+
+        function renderDriveStatus(connected, message) {
+            driveConnectStatus.className = connected ? 'drive-status-ok' : 'drive-status-error';
+            driveConnectStatus.innerText = message;
+        }
+
+        async function testDriveConnection() {
+            const webhook = (driveWebhookInput.value || "").trim();
+            if (!webhook) {
+                renderDriveStatus(false, 'Informe a URL do webhook.');
+                return false;
+            }
+            if (!isHttpContext) {
+                renderDriveStatus(false, 'Abra em http://localhost:8080 para testar.');
+                return false;
+            }
+            try {
+                testDriveBtn.disabled = true;
+                testDriveBtn.innerText = 'Testando...';
+                const pingUrl = new URL(webhook);
+                pingUrl.searchParams.set('action', 'ping');
+                const response = await fetch(pingUrl.toString(), { method: 'GET' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                renderDriveStatus(true, 'Drive conectado com sucesso.');
+                return true;
+            } catch (error) {
+                renderDriveStatus(false, `Falha ao conectar (${error.message}).`);
+                return false;
+            } finally {
+                testDriveBtn.disabled = false;
+                testDriveBtn.innerText = 'Testar Conexão';
+            }
+        }
+
+        driveWebhookInput.value = localStorage.getItem('mk360_drive_webhook') || DEFAULT_DRIVE_WEBHOOK;
+        driveWebhookInput.onchange = () => {
+            localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
+            showNotice("Webhook Google Drive salvo.");
+            renderDriveStatus(false, 'Webhook salvo. Clique em Testar Conexão.');
+        };
+        saveDriveBtn.onclick = () => {
+            localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
+            renderDriveStatus(false, 'Webhook salvo. Clique em Testar Conexão.');
+            showNotice("Configuração do Drive salva.");
+        };
+        testDriveBtn.onclick = testDriveConnection;
+        if (driveWebhookInput.value.trim()) {
+            renderDriveStatus(false, 'Webhook carregado. Clique em Testar Conexão.');
+        }
+        settingsGearBtn.onclick = () => {
+            document.getElementById('setupArea').classList.toggle('hidden');
+        };
+        closeSettingsBtn.onclick = () => {
+            document.getElementById('setupArea').classList.add('hidden');
+        };
+
+        if (isHttpContext) {
+            const manifestLink = document.createElement('link');
+            manifestLink.rel = 'manifest';
+            manifestLink.href = './manifest.webmanifest';
+            document.head.appendChild(manifestLink);
+        } else {
+            showNotice("Modo arquivo local detectado. Para QR, PWA e upload use: http://localhost:8080");
+            // Em file:// os efeitos podem falhar, mas os controles permanecem disponíveis.
+        }
+
+        if ('serviceWorker' in navigator && isHttpContext) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch((err) => {
+                    console.warn('Falha no Service Worker:', err);
+                });
+            });
+        }
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+            installBtn.style.display = 'block';
+        });
+
+        installBtn.onclick = async () => {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            installBtn.style.display = 'none';
+        };
+
+        document.getElementById('overlayInput').onchange = (e) => {
+            if (!e.target.files || !e.target.files[0]) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => overlayImg = img;
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        document.getElementById('musicInput').onchange = (e) => { musicFile = e.target.files[0]; };
+
+        function isSecureEnvironment() {
+            return window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+        }
+
+        function setReadyForNextVideo() {
+            isRecording = false;
+            chunks = [];
+            startBtn.disabled = false;
+            startBtn.classList.remove('hidden');
+            startBtn.innerText = 'Gerar Próximo Vídeo';
+            statusEl.innerText = "PRONTO PARA NOVA GRAVAÇÃO";
+            document.getElementById('recordingUI').classList.add('hidden');
+        }
+
+        function finalizeEvent() {
+            if (stream) {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+            stream = null;
+            isEventFinalized = true;
+            startBtn.disabled = false;
+            startBtn.innerText = "Reiniciar Câmera";
+            statusEl.innerText = "EVENTO FINALIZADO";
+            showNotice("Evento finalizado. Clique em 'Reiniciar Câmera' para reabrir e continuar.");
+        }
+
+        function cleanupRecordingAudio() {
+            if (recordingMusicElement) {
+                recordingMusicElement.pause();
+                recordingMusicElement.src = "";
+                recordingMusicElement = null;
+            }
+            if (recordingMusicObjectUrl) {
+                URL.revokeObjectURL(recordingMusicObjectUrl);
+                recordingMusicObjectUrl = null;
+            }
+            if (recordingAudioContext) {
+                recordingAudioContext.close().catch(() => {});
+                recordingAudioContext = null;
+            }
+        }
+
+        async function buildRecordingAudioTracks() {
+            if (!stream) return [];
+            cleanupRecordingAudio();
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return [...stream.getAudioTracks()];
+
+            recordingAudioContext = new AudioCtx();
+            const destination = recordingAudioContext.createMediaStreamDestination();
+            const micSource = recordingAudioContext.createMediaStreamSource(stream);
+            micSource.connect(destination);
+
+            if (musicFile) {
+                recordingMusicObjectUrl = URL.createObjectURL(musicFile);
+                recordingMusicElement = new Audio(recordingMusicObjectUrl);
+                recordingMusicElement.loop = true;
+                recordingMusicElement.volume = 0.9;
+                const musicSource = recordingAudioContext.createMediaElementSource(recordingMusicElement);
+                musicSource.connect(destination);
+                await recordingAudioContext.resume();
+                await recordingMusicElement.play().catch(() => {
+                    showNotice("Não foi possível tocar a música automaticamente. Toque na tela e tente novamente.");
+                });
+            }
+
+            return destination.stream.getAudioTracks();
+        }
+
+        async function initCamera() {
+            try {
+                if (!isSecureEnvironment()) {
+                    showError("Este sistema precisa de HTTPS (ou localhost) para acessar a câmara/microfone.");
+                    return;
+                }
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+                    showError("Navegador sem suporte completo para câmara/gravação. Atualize para Chrome/Edge recente.");
+                    return;
+                }
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", frameRate: { ideal: 60 }, width: 1280, height: 720 },
+                    audio: true 
+                });
+                video.srcObject = stream;
+                video.setAttribute('playsinline', '');
+                video.play();
+                video.onloadedmetadata = () => {
+                    canvas.width = 720; canvas.height = 1280;
+                    drawPreview();
+                };
+                isEventFinalized = false;
+                startBtn.disabled = false;
+                statusEl.innerText = "Pronto para o Evento";
+            } catch (err) {
+                showError("Câmara não detetada ou permissão negada. Use um ambiente HTTPS.");
+            }
+        }
+
+        function drawPreview() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            if (overlayImg) ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height);
+            else {
+                ctx.strokeStyle = "rgba(234, 179, 8, 0.15)";
+                ctx.lineWidth = 40; ctx.strokeRect(0, 0, canvas.width, canvas.height);
+            }
+            requestAnimationFrame(drawPreview);
+        }
+
+        startBtn.onclick = async () => {
+            if (!partyNameInput.value.trim()) {
+                showError("Por favor, digite o nome do evento antes de começar.");
+                return;
+            }
+
+            if (!stream) {
+                await initCamera();
+                if (!stream) {
+                    showError("A câmara ainda não está pronta. Confirme permissões e ambiente HTTPS.");
+                return;
+                }
+                if (isEventFinalized) {
+                    startBtn.innerText = "Iniciar MK 360";
+                    isEventFinalized = false;
+                }
+            }
+            if (isRecording) return;
+            isRecording = true;
+
+            startBtn.disabled = true;
+            document.getElementById('resultArea').classList.add('hidden');
+
+            countdownEl.classList.remove('hidden');
+            for(let i=3; i>0; i--) {
+                countdownEl.innerText = i;
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            countdownEl.classList.add('hidden');
+
+            const recordingDuration = parseInt(durationInput.value) * 1000;
+            const canvasStream = canvas.captureStream(60);
+            const mixedAudioTracks = await buildRecordingAudioTracks();
+            const mixedStream = new MediaStream([
+                ...canvasStream.getVideoTracks(),
+                ...mixedAudioTracks
+            ]);
+            recordedHasAudio = mixedAudioTracks.length > 0;
+            chunks = [];
+            const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9') ? 'video/webm; codecs=vp9' : 'video/webm';
+            recorder = new MediaRecorder(mixedStream, { mimeType });
+            
+            recorder.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+            recorder.onstop = processFinalVideo;
+
+            recorder.start();
+            document.getElementById('recordingUI').classList.remove('hidden');
+            statusEl.innerText = `GRAVANDO (${durationInput.value}S)...`;
+
+            setTimeout(() => {
+                if (recorder && recorder.state === 'recording') recorder.stop();
+                document.getElementById('recordingUI').classList.add('hidden');
+                cleanupRecordingAudio();
+            }, recordingDuration); 
+        };
+
+        function getSafeFileName(extension) {
+            const timestamp = new Date().getTime();
+            const partyName = partyNameInput.value.trim().replace(/\s+/g, '_');
+            return `MK360_${partyName}_${timestamp}.${extension}`;
+        }
+
+        function openQueueDb() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DRIVE_QUEUE_DB, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(DRIVE_QUEUE_STORE)) {
+                        db.createObjectStore(DRIVE_QUEUE_STORE, { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function queueDriveUpload(blob, fileName, extension) {
+            const db = await openQueueDb();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(DRIVE_QUEUE_STORE, 'readwrite');
+                const store = tx.objectStore(DRIVE_QUEUE_STORE);
+                store.add({
+                    fileBlob: blob,
+                    fileName,
+                    extension,
+                    eventName: partyNameInput.value.trim(),
+                    createdAt: Date.now()
+                });
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+        }
+
+        async function getQueuedDriveUploads() {
+            const db = await openQueueDb();
+            const items = await new Promise((resolve, reject) => {
+                const tx = db.transaction(DRIVE_QUEUE_STORE, 'readonly');
+                const store = tx.objectStore(DRIVE_QUEUE_STORE);
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => reject(req.error);
+            });
+            db.close();
+            return items;
+        }
+
+        async function removeQueuedDriveUpload(id) {
+            const db = await openQueueDb();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(DRIVE_QUEUE_STORE, 'readwrite');
+                tx.objectStore(DRIVE_QUEUE_STORE).delete(id);
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+        }
+
+        async function sendToGoogleDrive(blob, fileName) {
+            const webhook = (driveWebhookInput.value || "").trim();
+            if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
+            if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
+            const uploadUrl = new URL(webhook);
+            uploadUrl.searchParams.set('action', 'upload');
+            uploadUrl.searchParams.set('fileName', fileName);
+            uploadUrl.searchParams.set('eventName', partyNameInput.value.trim());
+            uploadUrl.searchParams.set('contentType', blob.type || 'application/octet-stream');
+
+            const response = await fetch(uploadUrl.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: blob
+            });
+            if (!response.ok) {
+                throw new Error(`Falha no envio ao Drive (${response.status})`);
+            }
+            let payload = {};
+            try {
+                payload = await response.json();
+            } catch (_) {}
+            return { skipped: false, payload };
+        }
+
+        async function syncQueuedDriveUploads() {
+            const webhook = (driveWebhookInput.value || "").trim();
+            if (!navigator.onLine || !webhook || !isHttpContext) return;
+            try {
+                const queue = await getQueuedDriveUploads();
+                if (!queue.length) return;
+                for (const item of queue) {
+                    try {
+                        await sendToGoogleDrive(item.fileBlob, item.fileName);
+                        await removeQueuedDriveUpload(item.id);
+                    } catch (_) {
+                        // Mantém na fila para próxima tentativa.
+                    }
+                }
+            } catch (err) {
+                console.warn('Falha ao sincronizar fila Drive:', err);
+            }
+        }
+
+        async function uploadVideoForQr(blob, extension) {
+            if (!isHttpContext) {
+                throw new Error("Upload via QR indisponível em file://. Abra em http://localhost:8080");
+            }
+            const response = await fetch(`/api/upload?ext=${encodeURIComponent(extension)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: blob
+            });
+            if (!response.ok) throw new Error("Falha ao enviar video para QR");
+            return response.json();
+        }
+
+        function buildFilterByEffect(directionValue, speedValue) {
+            const speed = Number(speedValue);
+            const shouldSlow = speed > 0 && speed < 1;
+            let videoFilter = "";
+            let audioFilter = "";
+            let filterComplex = "";
+            let mapVideo = "0:v";
+            let mapAudio = recordedHasAudio ? "0:a?" : "";
+
+            if (directionValue === "reverse" || directionValue === "boomerang") {
+                filterComplex = "[0:v]split[vf][vr];[vr]reverse[rv];[vf][rv]concat=n=2:v=1:a=0[v]";
+                mapVideo = "[v]";
+                if (shouldSlow) {
+                    filterComplex += ";[v]setpts=2.0*PTS[v2]";
+                    mapVideo = "[v2]";
+                }
+                if (recordedHasAudio) {
+                    filterComplex += ";[0:a]asplit[af][ar];[ar]areverse[ra];[af][ra]concat=n=2:v=0:a=1[a]";
+                    mapAudio = "[a]";
+                    if (shouldSlow) {
+                        filterComplex += ";[a]atempo=0.5[a2]";
+                        mapAudio = "[a2]";
+                    }
+                }
+                return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
+            }
+
+            if (directionValue === "reverse") {
+                videoFilter = "reverse";
+                if (recordedHasAudio) audioFilter = "areverse";
+            }
+
+            if (shouldSlow) {
+                videoFilter = videoFilter ? `${videoFilter},setpts=2.0*PTS` : "setpts=2.0*PTS";
+                if (recordedHasAudio) audioFilter = audioFilter ? `${audioFilter},atempo=0.5` : "atempo=0.5";
+            }
+
+            return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
+        }
+
+        async function processFinalVideo() {
+            try {
+                document.getElementById('resultArea').classList.remove('hidden');
+                document.getElementById('resultTitle').innerText = "MK 360: PROCESSANDO VÍDEO...";
+                statusEl.innerText = "MK 360: FINALIZANDO...";
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                const directionMode = directionEffectInput.value;
+                const speedValue = speedEffectInput.value;
+                const effectEnabled = directionMode !== "normal" || Number(speedValue) !== 1;
+                const canUseAdvancedEffects = isHttpContext;
+
+                // Sem efeitos, modo rápido sem FFmpeg.
+                if (!effectEnabled || !canUseAdvancedEffects) {
+                    const localUrl = URL.createObjectURL(blob);
+                    if (effectEnabled && !canUseAdvancedEffects) {
+                        showNotice("Efeitos avançados exigem servidor HTTP/HTTPS. Vídeo gerado sem efeito.");
+                    }
+                    showResult(localUrl, "VÍDEO PRONTO! GERANDO QR...", blob, 'webm');
+                    return;
+                }
+
+                try {
+                    if (!ffmpeg.isLoaded()) await ffmpeg.load();
+                ffmpeg.FS('writeFile', 'vid.webm', await fetchFile(blob));
+                    const { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio } = buildFilterByEffect(directionMode, speedValue);
+                    const command = ['-i', 'vid.webm'];
+                    if (filterComplex) {
+                        command.push('-filter_complex', filterComplex, '-map', mapVideo);
+                        if (mapAudio) command.push('-map', mapAudio);
+                } else {
+                        if (videoFilter) command.push('-vf', videoFilter);
+                        if (audioFilter) command.push('-af', audioFilter);
+                        command.push('-map', '0:v');
+                        if (recordedHasAudio) command.push('-map', '0:a?');
+                    }
+
+                    command.push('-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart');
+                    if (recordedHasAudio) command.push('-c:a', 'aac', '-b:a', '192k');
+                    command.push('final.mp4');
+
+                    try {
+                await ffmpeg.run(...command);
+                    } catch (primaryRunError) {
+                        // Fallback específico para reverso: prioriza aplicar o efeito visual
+                        // mesmo que o pipeline com áudio falhe.
+                        if (directionMode === "reverse") {
+                            const reverseOnlyCommand = ['-i', 'vid.webm', '-vf', 'reverse', '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart', 'final.mp4'];
+                            if (Number(speedValue) < 1) {
+                                reverseOnlyCommand.splice(3, 2, '-vf', 'reverse,setpts=2.0*PTS');
+                            }
+                            await ffmpeg.run(...reverseOnlyCommand);
+                            showNotice("Reverso aplicado em modo compatível (sem áudio) para garantir o efeito.");
+                        } else {
+                            throw primaryRunError;
+                        }
+                    }
+                const output = ffmpeg.FS('readFile', 'final.mp4');
+                const finalBlob = new Blob([output.buffer], { type: 'video/mp4' });
+                    const localUrl = URL.createObjectURL(finalBlob);
+                    showResult(localUrl, "VÍDEO PRONTO! GERANDO QR...", finalBlob, 'mp4');
+                } catch (ffmpegError) {
+                    // Se houver efeito selecionado, não entrega vídeo sem efeito.
+                    // Fallback: mantém o sistema operacional mesmo sem isolamento completo.
+                    const fallbackUrl = URL.createObjectURL(blob);
+                    showResult(fallbackUrl, "VÍDEO PRONTO (FALLBACK)! GERANDO QR...", blob, 'webm');
+                    showNotice("Processamento avançado indisponível neste ambiente. Vídeo gerado em modo compatível.");
+                    console.warn("FFmpeg fallback:", ffmpegError);
+                }
+            } catch (err) {
+                console.error(err);
+                showError("Erro no processamento: " + err.message);
+            } finally {
+                setReadyForNextVideo();
+            }
+        }
+
+        async function showResult(url, title = "VÍDEO BAIXADO COM SUCESSO!", blobForUpload = null, extension = 'webm') {
+            document.getElementById('resultTitle').innerText = title;
+            statusEl.innerText = "MK 360 PRONTO!";
+            startBtn.classList.add('hidden');
+            document.getElementById('finalVideo').src = url;
+            document.getElementById('resultArea').classList.remove('hidden');
+            document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const qrRoot = document.getElementById("qrcode");
+            qrRoot.innerHTML = "";
+            qrMessage.innerText = "Publicando vídeo para download...";
+            directDownloadBtn.classList.add('hidden');
+            directDownloadBtn.removeAttribute('href');
+            openInBrowserBtn.classList.add('hidden');
+            openInBrowserBtn.removeAttribute('href');
+            shareAirdropBtn.classList.add('hidden');
+            shareWhatsappBtn.classList.add('hidden');
+            shareWhatsappBtn.removeAttribute('href');
+            shareWebBtn.classList.add('hidden');
+            finalizedMessage.classList.add('hidden');
+            driveStatusMessage.classList.add('hidden');
+            driveStatusMessage.innerText = "";
+
+            const setupShareActions = (shareUrl) => {
+                const encodedUrl = encodeURIComponent(shareUrl);
+                const waText = encodeURIComponent("Seu vídeo MK 360 está pronto. Baixe aqui:");
+                shareWhatsappBtn.href = `https://wa.me/?text=${waText}%20${encodedUrl}`;
+                if (navigator.onLine) {
+                    shareWhatsappBtn.classList.remove('hidden');
+                } else {
+                    shareWhatsappBtn.classList.add('hidden');
+                }
+
+                const nativeShare = async () => {
+                    if (!navigator.share) {
+                        await navigator.clipboard.writeText(shareUrl);
+                        showNotice("Link copiado. Cole para compartilhar.");
+                        return;
+                    }
+                    await navigator.share({
+                        title: "Vídeo MK 360",
+                        text: "Seu vídeo está pronto!",
+                        url: shareUrl
+                    });
+                };
+
+                shareAirdropBtn.onclick = async () => {
+                    try {
+                        await nativeShare();
+                    } catch (_) {
+                        showNotice("Não foi possível compartilhar no momento.");
+                    }
+                };
+
+                shareWebBtn.onclick = async () => {
+                    try {
+                        await nativeShare();
+                    } catch (_) {
+                        showNotice("Não foi possível compartilhar no momento.");
+                    }
+                };
+
+                shareAirdropBtn.classList.remove('hidden');
+                shareWebBtn.classList.remove('hidden');
+            };
+            try {
+                if (!blobForUpload) throw new Error("Blob indisponível para upload.");
+                const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
+                const downloadUrl = uploadInfo.downloadUrl;
+                const fileName = getSafeFileName(extension);
+
+                new QRCode(qrRoot, {
+                    text: downloadUrl,
+                width: 180, height: 180
+            });
+                qrMessage.innerText = "Escaneie o QR Code para baixar o vídeo direto no dispositivo.";
+                directDownloadBtn.href = downloadUrl;
+                directDownloadBtn.setAttribute('download', fileName);
+                directDownloadBtn.classList.remove('hidden');
+                openInBrowserBtn.href = downloadUrl;
+                openInBrowserBtn.classList.remove('hidden');
+                setupShareActions(downloadUrl);
+                document.getElementById('resultTitle').innerText = "VÍDEO PUBLICADO COM SUCESSO!";
+            } catch (uploadError) {
+                console.error(uploadError);
+                qrMessage.innerText = "Não foi possível publicar o QR automático. Use o botão para baixar neste aparelho.";
+                const localFileName = getSafeFileName(extension);
+                directDownloadBtn.href = url;
+                directDownloadBtn.setAttribute('download', localFileName);
+                directDownloadBtn.classList.remove('hidden');
+                openInBrowserBtn.href = url;
+                openInBrowserBtn.classList.remove('hidden');
+                setupShareActions(url);
+            }
+            thanksMessage.classList.remove('hidden');
+            finalizedMessage.classList.remove('hidden');
+
+            if (blobForUpload) {
+                const finalFileName = getSafeFileName(extension);
+                try {
+                    if (!navigator.onLine) {
+                        await queueDriveUpload(blobForUpload, finalFileName, extension);
+                        driveStatusMessage.innerText = "Drive: sem internet, vídeo salvo na fila para sincronizar automaticamente.";
+                    } else {
+                        const driveResult = await sendToGoogleDrive(blobForUpload, finalFileName);
+                        if (driveResult.skipped) {
+                            driveStatusMessage.innerText = `Drive: ${driveResult.reason}`;
+                        } else {
+                            driveStatusMessage.innerText = "Drive: vídeo enviado com sucesso!";
+                        }
+                    }
+                    driveStatusMessage.classList.remove('hidden');
+                } catch (driveError) {
+                    console.error(driveError);
+                    try {
+                        await queueDriveUpload(blobForUpload, finalFileName, extension);
+                        driveStatusMessage.innerText = "Drive: envio falhou, vídeo entrou na fila para sincronização automática.";
+                    } catch (_) {
+                        driveStatusMessage.innerText = "Drive: falha no envio e na fila local.";
+                    }
+                    driveStatusMessage.classList.remove('hidden');
+                }
+            }
+        }
+
+        function showNotice(msg) {
+            inlineNotice.textContent = msg;
+            inlineNotice.classList.remove('hidden');
+            setTimeout(() => inlineNotice.classList.add('hidden'), 7000);
+        }
+
+        function showError(msg) {
+            document.getElementById('errorMessage').innerText = msg;
+            document.getElementById('errorModal').classList.remove('hidden');
+            startBtn.disabled = false;
+            document.getElementById('resultArea').classList.add('hidden');
+            isRecording = false;
+        }
+
+        finalizeEventBtn.onclick = finalizeEvent;
+        nextVideoBtn.onclick = () => {
+            document.getElementById('resultArea').classList.add('hidden');
+            thanksMessage.classList.add('hidden');
+            finalizedMessage.classList.add('hidden');
+            driveStatusMessage.classList.add('hidden');
+            setReadyForNextVideo();
+        };
+        window.addEventListener('online', () => {
+            showNotice("Internet voltou. Sincronizando vídeos pendentes com o Drive...");
+            syncQueuedDriveUploads();
+        });
+        window.addEventListener('load', () => {
+            syncQueuedDriveUploads();
+        });
+        updateEffectDurationHint();
+        window.onload = initCamera;
+    </script>
+</body>
+</html>
