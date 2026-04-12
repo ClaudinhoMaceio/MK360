@@ -1,6 +1,28 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
+    <!-- Base = pasta do app. Sem isto, https://.../MK360 (sem /) faz ./ apontar para a raiz do domínio. -->
+    <base id="mk360-base" href="./">
+    <script>
+    (function () {
+        function mk360DirectoryBaseUrl() {
+            var u = new URL(location.href);
+            var p = u.pathname;
+            if (!p.endsWith("/")) {
+                if (/\.[a-z0-9]+$/i.test(p)) p = p.replace(/\/[^/]+$/, "/");
+                else p += "/";
+            }
+            u.pathname = p;
+            u.search = "";
+            u.hash = "";
+            return u.href;
+        }
+        var dir = mk360DirectoryBaseUrl();
+        var b = document.getElementById("mk360-base");
+        if (b) b.setAttribute("href", dir);
+        window.__mk360DirectoryBase = dir;
+    })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#020617">
@@ -9,7 +31,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MK 360">
     <title>MK 360 - Sistema de Vídeo Plataforma</title>
-    <!-- CSS gerado com Tailwind CLI (sem aviso de «cdn» em produção). Regenerar: npx tailwindcss@3 -i tailwind.input.css -o vendor/tailwind-built.css --minify -->
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <!-- CSS gerado com Tailwind CLI (sem CDN). Regenerar: npx tailwindcss@3 -i tailwind.input.css -o vendor/tailwind-built.css --minify -->
     <link rel="stylesheet" href="./vendor/tailwind-built.css">
     <!-- Mesma origem + COEP require-corp no servidor: necessário para ffmpeg.wasm (SharedArrayBuffer). -->
     <script src="./vendor/qrcode.min.js"></script>
@@ -348,6 +371,23 @@
         const isHttpContext = location.protocol === 'http:' || location.protocol === 'https:';
         const FILE_BANNER_DISMISS_KEY = 'mk360_dismiss_file_banner';
 
+        /** Pasta do app com barra final (corrige /MK360 sem / no GitHub Pages). */
+        function mk360PageDirectoryBase() {
+            if (typeof window.__mk360DirectoryBase === 'string' && window.__mk360DirectoryBase) {
+                return window.__mk360DirectoryBase;
+            }
+            const u = new URL(window.location.href);
+            let p = u.pathname;
+            if (!p.endsWith('/')) {
+                if (/\.[a-z0-9]+$/i.test(p)) p = p.replace(/\/[^/]+$/, '/');
+                else p += '/';
+            }
+            u.pathname = p;
+            u.search = '';
+            u.hash = '';
+            return u.href;
+        }
+
         function hideFileModeBanner() {
             const fb = document.getElementById('fileModeBanner');
             if (fb) fb.classList.add('hidden');
@@ -371,6 +411,8 @@
             });
         }
         const DEFAULT_DRIVE_WEBHOOK = 'https://script.google.com/macros/s/AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_/exec';
+        /** Webhook antigo (substituído automaticamente na localStorage) */
+        const LEGACY_DRIVE_WEBHOOK_ID = 'AKfycbzMWxVo2vHVU3GeW1zfPOhOSk1funU1amVZ57agujQIx02tjJ980EOadw4IGwEcG2e5';
         let deferredInstallPrompt = null;
         let isRecording = false;
         let isEventFinalized = false;
@@ -483,6 +525,37 @@
             driveConnectStatus.innerText = message;
         }
 
+        function pingDriveJsonp(webhookBase) {
+            return new Promise((resolve, reject) => {
+                const cb = 'mk360jsonp_' + Date.now();
+                let script;
+                const t = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('Tempo esgotado'));
+                }, 18000);
+                function cleanup() {
+                    clearTimeout(t);
+                    try { delete window[cb]; } catch (_) {}
+                    if (script && script.parentNode) script.parentNode.removeChild(script);
+                }
+                window[cb] = function (data) {
+                    cleanup();
+                    resolve(data);
+                };
+                const u = new URL(webhookBase);
+                u.searchParams.set('action', 'ping');
+                u.searchParams.set('callback', cb);
+                script = document.createElement('script');
+                script.async = true;
+                script.src = u.toString();
+                script.onerror = () => {
+                    cleanup();
+                    reject(new Error('JSONP falhou'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
         async function testDriveConnection() {
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) {
@@ -493,13 +566,26 @@
                 renderDriveStatus(false, 'Abra em http://localhost:8080 para testar.');
                 return false;
             }
+            const useJsonpFirst = location.hostname && location.hostname.endsWith('github.io');
             try {
                 testDriveBtn.disabled = true;
                 testDriveBtn.innerText = 'Testando...';
-                const pingUrl = new URL(webhook);
-                pingUrl.searchParams.set('action', 'ping');
-                const response = await fetch(pingUrl.toString(), { method: 'GET' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (useJsonpFirst) {
+                    const data = await pingDriveJsonp(webhook);
+                    if (!data || !data.ok) throw new Error((data && data.error) || 'Ping inválido');
+                } else {
+                    const pingUrl = new URL(webhook);
+                    pingUrl.searchParams.set('action', 'ping');
+                    try {
+                        const response = await fetch(pingUrl.toString(), { method: 'GET', mode: 'cors' });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        if (!data.ok) throw new Error(data.error || 'Resposta inválida');
+                    } catch (fetchErr) {
+                        const data = await pingDriveJsonp(webhook);
+                        if (!data || !data.ok) throw new Error((data && data.error) || fetchErr.message || 'Ping inválido');
+                    }
+                }
                 renderDriveStatus(true, 'Drive conectado com sucesso.');
                 return true;
             } catch (error) {
@@ -533,7 +619,14 @@
             });
         }
 
-        driveWebhookInput.value = localStorage.getItem('mk360_drive_webhook') || DEFAULT_DRIVE_WEBHOOK;
+        (function migrateDriveWebhook() {
+            let w = localStorage.getItem('mk360_drive_webhook');
+            if (w && w.includes(LEGACY_DRIVE_WEBHOOK_ID)) {
+                w = DEFAULT_DRIVE_WEBHOOK;
+                localStorage.setItem('mk360_drive_webhook', w);
+            }
+            driveWebhookInput.value = w || DEFAULT_DRIVE_WEBHOOK;
+        })();
         driveWebhookInput.onchange = () => {
             localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
             showNotice("Webhook Google Drive salvo.");
@@ -567,10 +660,14 @@
 
         if ('serviceWorker' in navigator && isHttpContext) {
             window.addEventListener('load', () => {
-                const swUrl = new URL('sw.js', window.location.href).href;
-                navigator.serviceWorker.register(swUrl).catch((err) => {
-                    console.warn('Falha no Service Worker:', err);
-                });
+                const pageDir = mk360PageDirectoryBase();
+                const swUrl = new URL('sw.js', pageDir).href;
+                fetch(swUrl, { method: 'HEAD', cache: 'no-store' })
+                    .then((res) => {
+                        if (!res.ok) return null;
+                        return navigator.serviceWorker.register(swUrl, { scope: pageDir });
+                    })
+                    .catch(() => {});
             });
         }
 
@@ -1097,6 +1194,13 @@
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
+            if (location.hostname && location.hostname.endsWith("github.io")) {
+                return {
+                    skipped: true,
+                    queueForLater: true,
+                    reason: "GitHub Pages bloqueia POST ao Drive (CORS). Abra o site pelo node server.js no PC para enviar."
+                };
+            }
             const uploadUrl = new URL(webhook);
             uploadUrl.searchParams.set('action', 'upload');
             uploadUrl.searchParams.set('fileName', fileName);
@@ -1126,7 +1230,8 @@
                 if (!queue.length) return;
                 for (const item of queue) {
                     try {
-                        await sendToGoogleDrive(item.fileBlob, item.fileName);
+                        const result = await sendToGoogleDrive(item.fileBlob, item.fileName);
+                        if (result && result.skipped) continue;
                         await removeQueuedDriveUpload(item.id);
                     } catch (_) {
                         // Mantém na fila para próxima tentativa.
@@ -1402,7 +1507,14 @@
                     } else {
                         const driveResult = await sendToGoogleDrive(blobForUpload, finalFileName);
                         if (driveResult.skipped) {
-                            driveStatusMessage.innerText = `Drive: ${driveResult.reason}`;
+                            let msg = `Drive: ${driveResult.reason}`;
+                            if (driveResult.queueForLater) {
+                                try {
+                                    await queueDriveUpload(blobForUpload, finalFileName, extension);
+                                    msg += " Vídeo guardado na fila — ao abrir em http://localhost:8080 o envio corre sozinho.";
+                                } catch (_) {}
+                            }
+                            driveStatusMessage.innerText = msg;
                         } else {
                             driveStatusMessage.innerText = "Drive: vídeo enviado com sucesso!";
                         }

@@ -34,12 +34,22 @@ function jsonOut(payload) {
 
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || "";
+  const callback = e && e.parameter && e.parameter.callback;
+
   if (action === "ping") {
-    return jsonOut({
+    const payload = {
       ok: true,
       service: "mk360-drive-webhook",
       timestamp: new Date().toISOString()
-    });
+    };
+    // JSONP: permite testar o webhook a partir de sites (ex.: GitHub Pages) onde fetch bloqueia CORS.
+    const cb = String(callback || "").trim();
+    if (cb && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(cb)) {
+      return ContentService
+        .createTextOutput(cb + "(" + JSON.stringify(payload) + ");")
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return jsonOut(payload);
   }
   return jsonOut({ ok: false, error: "Use action=ping para teste." });
 }

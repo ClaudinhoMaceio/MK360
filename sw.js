@@ -1,9 +1,18 @@
-const CACHE_NAME = "mk360-cache-v4";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/vendor/tailwind-built.css"];
+const CACHE_NAME = "mk360-cache-v6";
 
 self.addEventListener("install", (event) => {
+  const scope = self.registration.scope;
+  const paths = [
+    "index.html",
+    "manifest.webmanifest",
+    "icon.svg",
+    "vendor/tailwind-built.css",
+  ];
+  const urls = paths.map((p) => new URL(p, scope).href);
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(urls.map((u) => cache.add(u).catch(() => {})))
+    )
   );
   self.skipWaiting();
 });
@@ -27,6 +36,8 @@ self.addEventListener("fetch", (event) => {
   const isHttp = requestUrl.protocol.startsWith("http");
   if (!isHttp) return;
 
+  const indexUrl = new URL("index.html", self.registration.scope).href;
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -39,7 +50,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           return response;
         })
-        .catch(() => caches.match("/index.html"));
+        .catch(() => caches.match(indexUrl));
     })
   );
 });
