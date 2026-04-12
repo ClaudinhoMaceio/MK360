@@ -1,12 +1,27 @@
 /**
  * MK360 -> Google Drive Webhook (Apps Script)
  *
- * Como usar:
- * 1) Substitua FOLDER_ID pelo ID da pasta do Drive.
- * 2) Deploy > New deployment > Web app
- * 3) Execute as: Me
- * 4) Who has access: Anyone
- * 5) Cole a URL do Web App no campo "Webhook Google Drive" do MK360.
+ * Pasta de destino (MK360):
+ * https://drive.google.com/drive/folders/1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq
+ *
+ * Cada upload do MK360 grava um arquivo nesta pasta (nome: Evento_data_nome.ext).
+ *
+ * URL da APLICAÇÃO WEB (use esta no MK360, campo Webhook — termina em /exec):
+ *   https://script.google.com/macros/s/AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_/exec
+ *
+ * NÃO use no MK360 links do tipo script.google.com/macros/library/... — isso é biblioteca
+ * para importar noutro projeto no editor do Apps Script, não é o endpoint de upload.
+ *
+ * ID do deployment (trecho do URL): AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_
+ *
+ * Como publicar:
+ * 1) Conta Google com permissão de escrita na pasta do Drive acima.
+ * 2) Implementar > Nova implementação > Tipo: Aplicação Web
+ * 3) Executar como: Eu
+ * 4) Quem tem acesso: Qualquer pessoa (para o MK360 enviar POST sem login no browser)
+ * 5) Copiar URL /exec para o MK360 e clicar em Salvar Drive / Testar Conexão.
+ *
+ * Se abrir o /exec no browser e aparecer login Google, reveja o passo 4 ou crie nova versão da implementação.
  */
 
 const FOLDER_ID = "1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq";

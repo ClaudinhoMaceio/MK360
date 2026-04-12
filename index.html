@@ -9,10 +9,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MK 360">
     <title>MK 360 - Sistema de Vídeo Plataforma</title>
-    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <!-- Utilizando a versão 0.11.6 do ffmpeg.wasm -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- CSS gerado com Tailwind CLI (sem aviso de «cdn» em produção). Regenerar: npx tailwindcss@3 -i tailwind.input.css -o vendor/tailwind-built.css --minify -->
+    <link rel="stylesheet" href="./vendor/tailwind-built.css">
+    <!-- Mesma origem + COEP require-corp no servidor: necessário para ffmpeg.wasm (SharedArrayBuffer). -->
+    <script src="./vendor/qrcode.min.js"></script>
+    <script src="./vendor/ffmpeg.min.js"></script>
     <style>
         @keyframes pulse {
             0%, 100% { transform: scale(1); opacity: 1; }
@@ -40,13 +41,17 @@
             #startBtn { padding-top: 18px; padding-bottom: 18px; font-size: 1rem; }
             #resultArea .bg-glass { padding: 1rem; border-radius: 1.25rem; }
             #countdown { font-size: 6rem; }
-            #recordingUI { top: 10px; left: 10px; padding: 6px 10px; }
+            #recordingUI { bottom: 8px; padding-left: 8px; padding-right: 8px; }
         }
 
         @media (max-height: 740px) {
             header { margin-bottom: 8px; }
             #setupArea { margin-bottom: 10px; padding: 12px; }
             section.w-full.max-w-md.mt-6.space-y-4 { margin-top: 10px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .recording-pulse { animation: none; }
         }
 
         #installBtn {
@@ -88,15 +93,32 @@
         .btn-ghost { width: 100%; background: transparent; border: 1px solid rgba(148,163,184,.4); color: #cbd5e1; font-weight: 800; padding: 12px; border-radius: 12px; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
         .drive-status-ok { color: #6ee7b7; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
         .drive-status-error { color: #fca5a5; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+        .history-card { background: linear-gradient(180deg, rgba(15,23,42,.85), rgba(15,23,42,.55)); border: 1px solid rgba(250,204,21,.2); }
+        .history-btn { font-size: 9px; font-weight: 800; padding: 6px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: .06em; border: 1px solid rgba(148,163,184,.35); color: #e2e8f0; background: rgba(30,41,59,.6); }
+        .history-btn:hover { border-color: rgba(234,179,8,.45); color: #fef08a; }
+
+        #recordingUI { pointer-events: none; user-select: none; }
     </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen flex flex-col items-center p-4">
+
+    <div id="fileModeBanner" class="hidden fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-slate-950 shadow-lg px-3 py-2.5">
+        <div class="max-w-3xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <p class="text-[11px] font-bold leading-snug text-center sm:text-left flex-1">
+                Abriu pelo arquivo (file://). Para <strong>QR</strong>, <strong>efeitos</strong> e melhor câmera: rode <code class="bg-black/15 px-1.5 py-0.5 rounded text-[10px]">node server.js</code> e use <strong>http://localhost:8080</strong> (ou o IP do PC na rede).
+            </p>
+            <div class="flex items-center justify-center gap-2 shrink-0">
+                <button type="button" id="fileBannerNeverBtn" class="text-[10px] font-black uppercase px-2 py-1.5 rounded-lg bg-black/20 hover:bg-black/30 border border-black/10">Não mostrar de novo</button>
+                <button type="button" id="fileBannerCloseBtn" class="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-slate-950 text-amber-400 hover:bg-slate-900">Fechar</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Cabeçalho -->
     <header class="w-full max-w-md flex justify-between items-center mb-4">
         <div class="flex flex-col">
             <h1 class="text-3xl font-black bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent tracking-tighter">MK 360</h1>
-            <span id="systemStatus" class="text-xs text-slate-400 font-mono uppercase tracking-widest">Pronto para o Evento</span>
+            <span id="systemStatus" class="text-xs text-slate-400 font-mono uppercase tracking-widest" role="status" aria-live="polite">Pronto para o Evento</span>
         </div>
         <div class="flex items-center gap-3">
         <div id="connectionDot" class="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.8)]"></div>
@@ -115,6 +137,15 @@
         <div class="space-y-1">
                     <label class="block field-label">Nome do Evento (Pasta/Ficheiro)</label>
             <input type="text" id="partyName" placeholder="Ex: Festa_da_Empresa" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+        </div>
+
+        <div class="space-y-1">
+                    <label class="block field-label">Câmera</label>
+                    <select id="cameraFacing" class="effect-select" title="Frontal ou traseira (celular)">
+                        <option value="user">Frontal (selfie)</option>
+                        <option value="environment">Traseira</option>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1">No celular você escolhe qual câmera usar. No PC normalmente só há uma webcam.</p>
         </div>
 
         <div class="space-y-1">
@@ -152,9 +183,11 @@
                 </div>
                 <p id="effectDurationHint" class="text-[11px] text-slate-300 font-bold">Duração final estimada: 10s</p>
                 <div class="space-y-1 pt-2 border-t border-white/10">
-                    <label class="block field-label">Webhook Google Drive (Opcional)</label>
-                    <input type="text" id="driveWebhookInput" placeholder="Cole aqui a URL do Web App (Apps Script)" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
-                    <p class="text-[10px] text-slate-400">Se preenchido, o vídeo final é enviado automaticamente ao finalizar.</p>
+                    <label class="block field-label">Google Drive — envio automático</label>
+                    <p class="text-[10px] text-slate-400 mb-2 leading-relaxed">Após cada vídeo finalizado, o ficheiro é enviado <strong class="text-slate-300">automaticamente</strong> para a pasta <a href="https://drive.google.com/drive/folders/1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq?usp=sharing" target="_blank" rel="noopener noreferrer" class="text-cyan-400 underline font-bold">MK360 no Drive</a> (configurada no <code class="text-yellow-200/90">google-apps-script-drive.gs</code>).</p>
+                    <label class="block field-label">URL do Web App (Apps Script)</label>
+                    <input type="text" id="driveWebhookInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+                    <p class="text-[10px] text-slate-400">Cole a URL <code class="text-slate-300">/exec</code> da implementação e salve. Sem isto o envio ao Drive não corre.</p>
                     <div class="grid grid-cols-2 gap-2 pt-2">
                         <button id="saveDriveBtn" class="btn-ghost">Salvar Drive</button>
                         <button id="testDriveBtn" class="btn-ghost">Testar Conexão</button>
@@ -167,17 +200,29 @@
 
     <!-- Visualizador Principal -->
     <main class="relative w-full max-w-md flex flex-col items-center">
-        <canvas id="previewCanvas"></canvas>
+        <canvas id="previewCanvas" aria-hidden="true"></canvas>
         <div id="countdown" class="absolute inset-0 z-30 flex items-center justify-center text-9xl font-black hidden text-yellow-500 drop-shadow-[0_0_30px_rgba(234,179,8,0.8)]">3</div>
-        <div id="recordingUI" class="absolute top-6 left-6 flex items-center space-x-3 hidden bg-black/50 px-4 py-2 rounded-full backdrop-blur-md">
-            <div class="w-3 h-3 bg-red-600 rounded-full recording-pulse"></div>
-            <span class="text-xs font-black tracking-widest uppercase text-white">Gravando</span>
+        <div id="recordingUI" class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 hidden w-full max-w-[min(100%,280px)] px-2" role="timer" aria-live="polite" aria-atomic="true">
+            <div class="relative w-[7.25rem] h-[7.25rem] sm:w-28 sm:h-28 drop-shadow-[0_4px_24px_rgba(0,0,0,.6)]">
+                <svg id="recordingRingSvg" class="w-full h-full -rotate-90" viewBox="0 0 120 120" aria-hidden="true">
+                    <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="7"/>
+                    <circle id="recordingRingProgress" cx="60" cy="60" r="52" fill="none" stroke="#eab308" stroke-width="7" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0"/>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span id="recordingTimeRemaining" class="text-3xl sm:text-4xl font-black text-white tabular-nums leading-none tracking-tight drop-shadow-md">0</span>
+                    <span class="text-[9px] font-black text-yellow-400/90 uppercase tracking-[0.2em] mt-1">seg restantes</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 bg-black/55 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">
+                <div class="w-2.5 h-2.5 bg-red-600 rounded-full recording-pulse shrink-0"></div>
+                <span class="text-[10px] sm:text-xs font-black tracking-widest uppercase text-white">Gravando</span>
+            </div>
         </div>
     </main>
 
     <!-- Painel de Controlo -->
     <section class="w-full max-w-md mt-6 space-y-4">
-        <div id="inlineNotice" class="floating-note hidden"></div>
+        <div id="inlineNotice" class="floating-note hidden" role="status" aria-live="polite"></div>
         <div id="effectActiveBadge" class="floating-note hidden"></div>
         <button id="installBtn">Instalar App MK 360</button>
         <button id="startBtn" class="w-full bg-gradient-to-b from-yellow-400 to-yellow-600 hover:from-yellow-300 hover:to-yellow-500 text-black font-black py-5 rounded-2xl shadow-[0_10px_20px_rgba(234,179,8,0.3)] transition-all active:scale-95 text-xl uppercase tracking-tighter">
@@ -185,10 +230,24 @@
         </button>
         <button id="finalizeEventBtn" class="btn-ghost">Finalizar Evento</button>
 
+        <!-- Histórico de vídeos finalizados (neste aparelho) -->
+        <div id="historySection" class="w-full space-y-2">
+            <button type="button" id="historyToggleBtn" class="btn-ghost flex items-center justify-center gap-2">
+                <span>📼 Vídeos finalizados</span>
+                <span id="historyCount" class="text-yellow-400 font-black">0</span>
+            </button>
+            <div id="historyPanel" class="hidden panel-soft p-4 rounded-2xl border border-yellow-500/15 max-h-[min(70vh,520px)] overflow-y-auto">
+                <p class="text-[10px] text-slate-400 mb-3 leading-relaxed">Lista salva neste aparelho. Para compartilhar por link em outro celular, use o servidor (mesmo IP da rede) ou toque em <strong class="text-yellow-200/90">Gerar link</strong> se ainda não existir.</p>
+                <div id="historyList" class="space-y-3"></div>
+                <button type="button" id="historyClearBtn" class="btn-ghost mt-4 border-red-500/30 text-red-300">Limpar histórico</button>
+            </div>
+        </div>
+
         <!-- Área de Resultado -->
         <div id="resultArea" class="hidden space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700">
             <div class="bg-glass border border-yellow-500/30 p-6 rounded-[2rem] shadow-2xl">
                 <h3 id="resultTitle" class="text-center font-black text-yellow-500 mb-4 tracking-widest uppercase italic text-sm">Processando...</h3>
+                <p id="processingDetail" class="hidden text-center text-slate-300 text-xs font-bold mb-3" role="status" aria-live="polite"></p>
                 <video id="finalVideo" class="w-full rounded-2xl mb-6 shadow-lg border border-white/10" controls loop playsinline></video>
                 
                 <div class="flex flex-col items-center result-card p-6 rounded-2xl">
@@ -211,13 +270,20 @@
         </div>
     </section>
 
+    <!-- Ver vídeo do histórico -->
+    <div id="historyViewModal" class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center p-4 hidden z-[60]" role="dialog" aria-modal="true" aria-labelledby="historyViewTitle">
+        <p id="historyViewTitle" class="text-xs font-black text-yellow-400 uppercase tracking-widest mb-3 text-center max-w-md truncate px-2"></p>
+        <video id="historyViewVideo" class="w-full max-w-md max-h-[75vh] rounded-xl border border-yellow-500/25 bg-black" controls playsinline></video>
+        <button type="button" id="historyViewCloseBtn" class="btn-soft mt-6 max-w-xs">Fechar</button>
+    </div>
+
     <!-- Modal de Erro -->
-    <div id="errorModal" class="fixed inset-0 bg-black/95 flex items-center justify-center p-8 hidden z-50">
+    <div id="errorModal" class="fixed inset-0 bg-black/95 flex items-center justify-center p-8 hidden z-50" role="dialog" aria-modal="true" aria-labelledby="errorModalTitle">
         <div class="bg-slate-900 border-2 border-red-600 p-8 rounded-3xl max-w-xs text-center">
             <div class="text-red-600 text-5xl mb-4">⚠️</div>
-            <h2 class="text-xl font-black text-white mb-3 uppercase">Erro de Segurança</h2>
+            <h2 id="errorModalTitle" class="text-xl font-black text-white mb-3 uppercase">Erro de Segurança</h2>
             <p id="errorMessage" class="text-sm text-slate-400 mb-6"></p>
-            <button onclick="document.getElementById('errorModal').classList.add('hidden')" class="w-full bg-red-600 text-white py-3 rounded-xl font-black uppercase">Fechar</button>
+            <button type="button" id="errorModalCloseBtn" class="w-full bg-red-600 text-white py-3 rounded-xl font-black uppercase">Fechar</button>
         </div>
     </div>
 
@@ -226,9 +292,9 @@
         
         // FFmpeg pode falhar em ambientes sem isolamento COOP/COEP.
         // Mantemos a instância para tentar processamento avançado quando disponível.
-        const ffmpeg = createFFmpeg({ 
-            log: true, 
-            corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js' 
+        const ffmpeg = createFFmpeg({
+            log: true,
+            corePath: new URL("vendor/ffmpeg-core.js", window.location.href).href
         });
         
         let stream, recorder, chunks = [];
@@ -239,7 +305,11 @@
         let recordingMusicObjectUrl = null;
         let recordedHasAudio = false;
         const DRIVE_QUEUE_DB = 'mk360_drive_queue_db';
+        const DB_VERSION = 2;
         const DRIVE_QUEUE_STORE = 'pending_uploads';
+        const FINISHED_STORE = 'finished_videos';
+        const MAX_HISTORY_ITEMS = 50;
+        let historyBlobUrls = [];
 
         const video = document.createElement('video');
         const canvas = document.getElementById('previewCanvas');
@@ -250,6 +320,7 @@
         const durationInput = document.getElementById('durationInput');
         const timeLabel = document.getElementById('timeLabel');
         const partyNameInput = document.getElementById('partyName');
+        const cameraFacingSelect = document.getElementById('cameraFacing');
         const settingsGearBtn = document.getElementById('settingsGearBtn');
         const closeSettingsBtn = document.getElementById('closeSettingsBtn');
         const configBody = document.getElementById('configBody');
@@ -275,10 +346,108 @@
         const finalizedMessage = document.getElementById('finalizedMessage');
         const driveStatusMessage = document.getElementById('driveStatusMessage');
         const isHttpContext = location.protocol === 'http:' || location.protocol === 'https:';
-        const DEFAULT_DRIVE_WEBHOOK = 'https://script.google.com/macros/s/AKfycbzMWxVo2vHVU3GeW1zfPOhOSk1funU1amVZ57agujQIx02tjJ980EOadw4IGwEcG2e5/exec';
+        const FILE_BANNER_DISMISS_KEY = 'mk360_dismiss_file_banner';
+
+        function hideFileModeBanner() {
+            const fb = document.getElementById('fileModeBanner');
+            if (fb) fb.classList.add('hidden');
+            document.body.style.paddingTop = '';
+        }
+
+        if (location.protocol === 'file:') {
+            const closeBtn = document.getElementById('fileBannerCloseBtn');
+            const neverBtn = document.getElementById('fileBannerNeverBtn');
+            if (!localStorage.getItem(FILE_BANNER_DISMISS_KEY)) {
+                const fb = document.getElementById('fileModeBanner');
+                if (fb) {
+                    fb.classList.remove('hidden');
+                    document.body.style.paddingTop = '5.5rem';
+                }
+            }
+            closeBtn?.addEventListener('click', hideFileModeBanner);
+            neverBtn?.addEventListener('click', () => {
+                localStorage.setItem(FILE_BANNER_DISMISS_KEY, '1');
+                hideFileModeBanner();
+            });
+        }
+        const DEFAULT_DRIVE_WEBHOOK = 'https://script.google.com/macros/s/AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_/exec';
         let deferredInstallPrompt = null;
         let isRecording = false;
         let isEventFinalized = false;
+        let lastResultObjectUrl = null;
+        let wakeLockHandle = null;
+        let recordingProgressRafId = null;
+        const processingDetail = document.getElementById('processingDetail');
+        const PARTY_NAME_KEY = 'mk360_party_name';
+        const CAMERA_FACING_KEY = 'mk360_camera_facing';
+
+        function getSelectedFacingMode() {
+            const v = cameraFacingSelect ? cameraFacingSelect.value : 'user';
+            return v === 'environment' ? 'environment' : 'user';
+        }
+
+        function cameraFacingLabel(mode) {
+            return mode === 'environment' ? 'Câmera traseira' : 'Câmera frontal';
+        }
+
+        function revokeLastResultUrl() {
+            if (lastResultObjectUrl) {
+                try { URL.revokeObjectURL(lastResultObjectUrl); } catch (_) {}
+                lastResultObjectUrl = null;
+            }
+        }
+
+        async function requestWakeLock() {
+            if (!navigator.wakeLock || !navigator.wakeLock.request) return;
+            try {
+                wakeLockHandle = await navigator.wakeLock.request('screen');
+                wakeLockHandle.addEventListener?.('release', () => { wakeLockHandle = null; });
+            } catch (_) {}
+        }
+
+        async function releaseWakeLock() {
+            try {
+                if (wakeLockHandle && typeof wakeLockHandle.release === 'function') {
+                    await wakeLockHandle.release();
+                }
+            } catch (_) {}
+            wakeLockHandle = null;
+        }
+
+        function stopRecordingProgressUI() {
+            if (recordingProgressRafId != null) {
+                cancelAnimationFrame(recordingProgressRafId);
+                recordingProgressRafId = null;
+            }
+        }
+
+        function startRecordingProgressUI(durationMs) {
+            stopRecordingProgressUI();
+            const ring = document.getElementById('recordingRingProgress');
+            const label = document.getElementById('recordingTimeRemaining');
+            if (!ring || !label) return;
+            const r = 52;
+            const C = 2 * Math.PI * r;
+            ring.style.strokeDasharray = String(C);
+            ring.style.strokeDashoffset = '0';
+            label.textContent = String(Math.max(1, Math.ceil(durationMs / 1000)));
+            const start = performance.now();
+
+            function tick(now) {
+                const elapsed = now - start;
+                const left = Math.max(0, durationMs - elapsed);
+                const off = C * (elapsed / durationMs);
+                ring.style.strokeDashoffset = String(Math.min(off, C));
+                const secs = Math.ceil(left / 1000);
+                label.textContent = String(left <= 0 ? 0 : secs);
+                if (left > 0) {
+                    recordingProgressRafId = requestAnimationFrame(tick);
+                } else {
+                    recordingProgressRafId = null;
+                }
+            }
+            recordingProgressRafId = requestAnimationFrame(tick);
+        }
 
         function updateEffectDurationHint() {
             const base = Number(durationInput.value || 0);
@@ -342,6 +511,28 @@
             }
         }
 
+        partyNameInput.value = localStorage.getItem(PARTY_NAME_KEY) || '';
+        partyNameInput.addEventListener('input', () => {
+            localStorage.setItem(PARTY_NAME_KEY, partyNameInput.value.trim());
+        });
+
+        if (cameraFacingSelect) {
+            const savedFacing = localStorage.getItem(CAMERA_FACING_KEY);
+            if (savedFacing === 'user' || savedFacing === 'environment') {
+                cameraFacingSelect.value = savedFacing;
+            }
+            cameraFacingSelect.addEventListener('change', async () => {
+                localStorage.setItem(CAMERA_FACING_KEY, cameraFacingSelect.value);
+                if (stream) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    stream = null;
+                }
+                video.srcObject = null;
+                await initCamera();
+                showNotice(`Câmera: ${cameraFacingSelect.options[cameraFacingSelect.selectedIndex].text}`);
+            });
+        }
+
         driveWebhookInput.value = localStorage.getItem('mk360_drive_webhook') || DEFAULT_DRIVE_WEBHOOK;
         driveWebhookInput.onchange = () => {
             localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
@@ -376,7 +567,8 @@
 
         if ('serviceWorker' in navigator && isHttpContext) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch((err) => {
+                const swUrl = new URL('sw.js', window.location.href).href;
+                navigator.serviceWorker.register(swUrl).catch((err) => {
                     console.warn('Falha no Service Worker:', err);
                 });
             });
@@ -414,6 +606,7 @@
         }
 
         function setReadyForNextVideo() {
+            stopRecordingProgressUI();
             isRecording = false;
             chunks = [];
             startBtn.disabled = false;
@@ -421,9 +614,16 @@
             startBtn.innerText = 'Gerar Próximo Vídeo';
             statusEl.innerText = "PRONTO PARA NOVA GRAVAÇÃO";
             document.getElementById('recordingUI').classList.add('hidden');
+            finalizeEventBtn.disabled = false;
+            processingDetail.classList.add('hidden');
+            processingDetail.textContent = '';
+            releaseWakeLock();
         }
 
         function finalizeEvent() {
+            stopRecordingProgressUI();
+            document.getElementById('recordingUI').classList.add('hidden');
+            releaseWakeLock();
             if (stream) {
                 stream.getTracks().forEach((track) => track.stop());
             }
@@ -432,6 +632,7 @@
             startBtn.disabled = false;
             startBtn.innerText = "Reiniciar Câmera";
             statusEl.innerText = "EVENTO FINALIZADO";
+            finalizeEventBtn.disabled = false;
             showNotice("Evento finalizado. Clique em 'Reiniciar Câmera' para reabrir e continuar.");
         }
 
@@ -488,10 +689,26 @@
                     showError("Navegador sem suporte completo para câmara/gravação. Atualize para Chrome/Edge recente.");
                     return;
                 }
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user", frameRate: { ideal: 60 }, width: 1280, height: 720 },
-                    audio: true 
-                });
+                // facingMode: "user" = frontal (selfie), "environment" = traseira.
+                const facing = getSelectedFacingMode();
+                const cameraPrimary = {
+                    video: {
+                        facingMode: { ideal: facing },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 60 }
+                    },
+                    audio: true
+                };
+                const cameraFallback = {
+                    video: { facingMode: { ideal: facing } },
+                    audio: true
+                };
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(cameraPrimary);
+                } catch (_) {
+                    stream = await navigator.mediaDevices.getUserMedia(cameraFallback);
+                }
                 video.srcObject = stream;
                 video.setAttribute('playsinline', '');
                 video.play();
@@ -501,21 +718,26 @@
                 };
                 isEventFinalized = false;
                 startBtn.disabled = false;
-                statusEl.innerText = "Pronto para o Evento";
+                statusEl.innerText = `${cameraFacingLabel(facing)} · Pronto para o Evento`;
             } catch (err) {
-                showError("Câmara não detetada ou permissão negada. Use um ambiente HTTPS.");
+                showError(`${cameraFacingLabel(getSelectedFacingMode())} não disponível ou permissão negada. Use HTTPS (ou localhost), permita a câmera e teste a outra opção em Configurações.`);
             }
         }
 
         function drawPreview() {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            if (overlayImg) ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height);
-            else {
-                ctx.strokeStyle = "rgba(234, 179, 8, 0.15)";
-                ctx.lineWidth = 40; ctx.strokeRect(0, 0, canvas.width, canvas.height);
+            if (!document.hidden || isRecording) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                if (overlayImg) ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height);
+                else {
+                    ctx.strokeStyle = "rgba(234, 179, 8, 0.15)";
+                    ctx.lineWidth = 40; ctx.strokeRect(0, 0, canvas.width, canvas.height);
+                }
             }
             requestAnimationFrame(drawPreview);
         }
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && stream) video.play?.().catch(() => {});
+        });
 
         startBtn.onclick = async () => {
             if (!partyNameInput.value.trim()) {
@@ -536,6 +758,7 @@
             }
             if (isRecording) return;
             isRecording = true;
+            finalizeEventBtn.disabled = true;
 
             startBtn.disabled = true;
             document.getElementById('resultArea').classList.add('hidden');
@@ -546,6 +769,8 @@
                 await new Promise(r => setTimeout(r, 1000));
             }
             countdownEl.classList.add('hidden');
+
+            await requestWakeLock();
 
             const recordingDuration = parseInt(durationInput.value) * 1000;
             const canvasStream = canvas.captureStream(60);
@@ -564,12 +789,15 @@
 
             recorder.start();
             document.getElementById('recordingUI').classList.remove('hidden');
-            statusEl.innerText = `GRAVANDO (${durationInput.value}S)...`;
+            startRecordingProgressUI(recordingDuration);
+            statusEl.innerText = `GRAVANDO (${durationInput.value}s)...`;
 
             setTimeout(() => {
+                stopRecordingProgressUI();
                 if (recorder && recorder.state === 'recording') recorder.stop();
                 document.getElementById('recordingUI').classList.add('hidden');
                 cleanupRecordingAudio();
+                releaseWakeLock();
             }, recordingDuration); 
         };
 
@@ -579,13 +807,16 @@
             return `MK360_${partyName}_${timestamp}.${extension}`;
         }
 
-        function openQueueDb() {
+        function openMk360Db() {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DRIVE_QUEUE_DB, 1);
-                request.onupgradeneeded = () => {
-                    const db = request.result;
+                const request = indexedDB.open(DRIVE_QUEUE_DB, DB_VERSION);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
                     if (!db.objectStoreNames.contains(DRIVE_QUEUE_STORE)) {
                         db.createObjectStore(DRIVE_QUEUE_STORE, { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!db.objectStoreNames.contains(FINISHED_STORE)) {
+                        db.createObjectStore(FINISHED_STORE, { keyPath: 'id', autoIncrement: true });
                     }
                 };
                 request.onsuccess = () => resolve(request.result);
@@ -593,8 +824,235 @@
             });
         }
 
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }
+
+        function formatHistoryDate(ts) {
+            try {
+                return new Date(ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+            } catch (_) {
+                return '';
+            }
+        }
+
+        async function getAllFinishedVideos() {
+            const db = await openMk360Db();
+            const items = await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readonly');
+                const req = tx.objectStore(FINISHED_STORE).getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => reject(req.error);
+            });
+            db.close();
+            return items;
+        }
+
+        async function trimFinishedHistory() {
+            const all = await getAllFinishedVideos();
+            if (all.length <= MAX_HISTORY_ITEMS) return;
+            all.sort((a, b) => a.createdAt - b.createdAt);
+            const toRemove = all.slice(0, all.length - MAX_HISTORY_ITEMS);
+            const db = await openMk360Db();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readwrite');
+                const store = tx.objectStore(FINISHED_STORE);
+                toRemove.forEach((row) => store.delete(row.id));
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+        }
+
+        async function saveFinishedVideo(blob, fileName, extension, eventName, shareUrl) {
+            if (!blob || blob.size === 0) return;
+            try {
+                const db = await openMk360Db();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction(FINISHED_STORE, 'readwrite');
+                    tx.objectStore(FINISHED_STORE).add({
+                        fileBlob: blob,
+                        fileName,
+                        extension,
+                        eventName: eventName || '',
+                        createdAt: Date.now(),
+                        shareUrl: shareUrl && String(shareUrl).startsWith('http') ? shareUrl : null
+                    });
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject(tx.error);
+                });
+                db.close();
+                await trimFinishedHistory();
+                await renderHistory();
+            } catch (e) {
+                console.warn('Histórico: não foi possível guardar', e);
+            }
+        }
+
+        async function updateFinishedShareUrl(id, shareUrl) {
+            const db = await openMk360Db();
+            const row = await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readonly');
+                const req = tx.objectStore(FINISHED_STORE).get(id);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            if (!row) {
+                db.close();
+                return;
+            }
+            row.shareUrl = shareUrl;
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readwrite');
+                tx.objectStore(FINISHED_STORE).put(row);
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+            await renderHistory();
+        }
+
+        async function removeFinishedVideo(id) {
+            const db = await openMk360Db();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readwrite');
+                tx.objectStore(FINISHED_STORE).delete(id);
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+            await renderHistory();
+        }
+
+        async function clearFinishedHistory() {
+            const db = await openMk360Db();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(FINISHED_STORE, 'readwrite');
+                tx.objectStore(FINISHED_STORE).clear();
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+            await renderHistory();
+        }
+
+        function revokeHistoryPreviewUrls() {
+            historyBlobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+            historyBlobUrls = [];
+        }
+
+        async function nativeShareUrl(url) {
+            try {
+                if (navigator.share) {
+                    await navigator.share({ title: 'MK 360', text: 'Vídeo disponível.', url });
+                } else {
+                    await navigator.clipboard.writeText(url);
+                    showNotice('Link copiado para a área de transferência.');
+                }
+            } catch (_) {
+                showNotice('Não foi possível compartilhar agora.');
+            }
+        }
+
+        async function renderHistory() {
+            const list = document.getElementById('historyList');
+            const countEl = document.getElementById('historyCount');
+            if (!list || !countEl) return;
+            revokeHistoryPreviewUrls();
+            const items = await getAllFinishedVideos();
+            items.sort((a, b) => b.createdAt - a.createdAt);
+            countEl.textContent = String(items.length);
+            list.innerHTML = '';
+            if (!items.length) {
+                list.innerHTML = '<p class="text-center text-slate-500 text-xs py-4">Ainda não há vídeos guardados.</p>';
+                return;
+            }
+            items.forEach((item) => {
+                const blob = item.fileBlob;
+                if (!(blob instanceof Blob)) return;
+                const previewUrl = URL.createObjectURL(blob);
+                historyBlobUrls.push(previewUrl);
+
+                const card = document.createElement('div');
+                card.className = 'history-card rounded-xl p-3';
+                card.innerHTML = `
+                    <div class="flex gap-3">
+                        <video class="w-24 h-20 rounded-lg object-cover bg-black shrink-0 border border-white/10" muted playsinline preload="metadata" src="${previewUrl}"></video>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-[10px] font-black text-yellow-400/95 truncate uppercase tracking-tight">${escapeHtml(item.fileName)}</p>
+                            <p class="text-[9px] text-slate-500 mt-0.5">${escapeHtml(item.eventName || '')}</p>
+                            <p class="text-[9px] text-slate-600">${formatHistoryDate(item.createdAt)}</p>
+                            <div class="flex flex-wrap gap-1.5 mt-2">
+                                <button type="button" class="history-btn h-play">Ver</button>
+                                <a class="history-btn h-dl inline-block text-center" href="#">Baixar</a>
+                                <button type="button" class="history-btn h-wa">WhatsApp</button>
+                                <button type="button" class="history-btn h-sh">Compartilhar</button>
+                                ${!item.shareUrl && isHttpContext ? `<button type="button" class="history-btn h-gen text-yellow-200/90 border-yellow-600/40">Gerar link</button>` : ''}
+                                <button type="button" class="history-btn h-del text-red-300/90 border-red-500/30">Apagar</button>
+                            </div>
+                        </div>
+                    </div>`;
+                const dlA = card.querySelector('.h-dl');
+                dlA.href = previewUrl;
+                dlA.setAttribute('download', item.fileName);
+
+                card.querySelector('.h-play').onclick = () => {
+                    document.getElementById('historyViewTitle').textContent = item.fileName;
+                    const v = document.getElementById('historyViewVideo');
+                    v.src = previewUrl;
+                    document.getElementById('historyViewModal').classList.remove('hidden');
+                };
+
+                card.querySelector('.h-wa').onclick = () => {
+                    const u = item.shareUrl;
+                    if (!u) {
+                        showNotice('Sem link público. Toque em «Gerar link» (servidor ligado) ou envie o arquivo pela opção Compartilhar do sistema.');
+                        return;
+                    }
+                    const waText = encodeURIComponent('Vídeo MK 360 — baixe aqui:');
+                    window.open(`https://wa.me/?text=${waText}%20${encodeURIComponent(u)}`, '_blank', 'noopener,noreferrer');
+                };
+
+                card.querySelector('.h-sh').onclick = () => {
+                    const u = item.shareUrl || previewUrl;
+                    nativeShareUrl(u);
+                };
+
+                const genBtn = card.querySelector('.h-gen');
+                if (genBtn) {
+                    genBtn.onclick = async () => {
+                        genBtn.disabled = true;
+                        genBtn.textContent = '...';
+                        try {
+                            const ext = (item.extension || 'webm').replace(/[^a-z0-9]/gi, '') || 'webm';
+                            const info = await uploadVideoForQr(blob, ext);
+                            if (info.downloadUrl) {
+                                await updateFinishedShareUrl(item.id, info.downloadUrl);
+                                showNotice('Link gerado. Você pode usar WhatsApp ou Compartilhar.');
+                            }
+                        } catch (e) {
+                            console.error(e);
+                            showNotice('Falha ao gerar link. Confirme o servidor (node) e a rede.');
+                        } finally {
+                            genBtn.disabled = false;
+                            genBtn.textContent = 'Gerar link';
+                        }
+                    };
+                }
+
+                card.querySelector('.h-del').onclick = async () => {
+                    if (!confirm('Apagar este vídeo do histórico neste dispositivo?')) return;
+                    await removeFinishedVideo(item.id);
+                };
+
+                list.appendChild(card);
+            });
+        }
+
         async function queueDriveUpload(blob, fileName, extension) {
-            const db = await openQueueDb();
+            const db = await openMk360Db();
             await new Promise((resolve, reject) => {
                 const tx = db.transaction(DRIVE_QUEUE_STORE, 'readwrite');
                 const store = tx.objectStore(DRIVE_QUEUE_STORE);
@@ -612,7 +1070,7 @@
         }
 
         async function getQueuedDriveUploads() {
-            const db = await openQueueDb();
+            const db = await openMk360Db();
             const items = await new Promise((resolve, reject) => {
                 const tx = db.transaction(DRIVE_QUEUE_STORE, 'readonly');
                 const store = tx.objectStore(DRIVE_QUEUE_STORE);
@@ -625,7 +1083,7 @@
         }
 
         async function removeQueuedDriveUpload(id) {
-            const db = await openQueueDb();
+            const db = await openMk360Db();
             await new Promise((resolve, reject) => {
                 const tx = db.transaction(DRIVE_QUEUE_STORE, 'readwrite');
                 tx.objectStore(DRIVE_QUEUE_STORE).delete(id);
@@ -683,12 +1141,16 @@
             if (!isHttpContext) {
                 throw new Error("Upload via QR indisponível em file://. Abra em http://localhost:8080");
             }
-            const response = await fetch(`/api/upload?ext=${encodeURIComponent(extension)}`, {
+            const uploadEndpoint = new URL(`/api/upload?ext=${encodeURIComponent(extension)}`, window.location.origin);
+            const response = await fetch(uploadEndpoint.href, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
                 body: blob
             });
-            if (!response.ok) throw new Error("Falha ao enviar video para QR");
+            if (!response.ok) {
+                const errText = await response.text().catch(() => "");
+                throw new Error(errText || `Falha ao enviar vídeo para o QR (${response.status})`);
+            }
             return response.json();
         }
 
@@ -717,11 +1179,6 @@
                     }
                 }
                 return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
-            }
-
-            if (directionValue === "reverse") {
-                videoFilter = "reverse";
-                if (recordedHasAudio) audioFilter = "areverse";
             }
 
             if (shouldSlow) {
@@ -754,8 +1211,11 @@
                 }
 
                 try {
+                    processingDetail.classList.remove('hidden');
+                    processingDetail.textContent = 'Carregando motor de vídeo (a primeira vez pode levar um minuto)...';
                     if (!ffmpeg.isLoaded()) await ffmpeg.load();
-                ffmpeg.FS('writeFile', 'vid.webm', await fetchFile(blob));
+                    processingDetail.textContent = 'Aplicando efeitos ao vídeo...';
+                    ffmpeg.FS('writeFile', 'vid.webm', await fetchFile(blob));
                     const { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio } = buildFilterByEffect(directionMode, speedValue);
                     const command = ['-i', 'vid.webm'];
                     if (filterComplex) {
@@ -775,15 +1235,16 @@
                     try {
                 await ffmpeg.run(...command);
                     } catch (primaryRunError) {
-                        // Fallback específico para reverso: prioriza aplicar o efeito visual
-                        // mesmo que o pipeline com áudio falhe.
-                        if (directionMode === "reverse") {
+                        // Fallback: reverso simples (sem concat) se filter_complex falhar (ex.: VP9/WebM).
+                        if (directionMode === "reverse" || directionMode === "boomerang") {
                             const reverseOnlyCommand = ['-i', 'vid.webm', '-vf', 'reverse', '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart', 'final.mp4'];
                             if (Number(speedValue) < 1) {
                                 reverseOnlyCommand.splice(3, 2, '-vf', 'reverse,setpts=2.0*PTS');
                             }
                             await ffmpeg.run(...reverseOnlyCommand);
-                            showNotice("Reverso aplicado em modo compatível (sem áudio) para garantir o efeito.");
+                            showNotice(directionMode === "boomerang"
+                                ? "Boomerang: aplicado reverso simples (modo compatível, sem áudio)."
+                                : "Reverso aplicado em modo compatível (sem áudio) para garantir o efeito.");
                         } else {
                             throw primaryRunError;
                         }
@@ -809,6 +1270,10 @@
         }
 
         async function showResult(url, title = "VÍDEO BAIXADO COM SUCESSO!", blobForUpload = null, extension = 'webm') {
+            revokeLastResultUrl();
+            if (url && String(url).startsWith('blob:')) lastResultObjectUrl = url;
+            processingDetail.classList.add('hidden');
+            processingDetail.textContent = '';
             document.getElementById('resultTitle').innerText = title;
             statusEl.innerText = "MK 360 PRONTO!";
             startBtn.classList.add('hidden');
@@ -872,27 +1337,9 @@
                 shareAirdropBtn.classList.remove('hidden');
                 shareWebBtn.classList.remove('hidden');
             };
-            try {
-                if (!blobForUpload) throw new Error("Blob indisponível para upload.");
-                const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
-                const downloadUrl = uploadInfo.downloadUrl;
-                const fileName = getSafeFileName(extension);
-
-                new QRCode(qrRoot, {
-                    text: downloadUrl,
-                width: 180, height: 180
-            });
-                qrMessage.innerText = "Escaneie o QR Code para baixar o vídeo direto no dispositivo.";
-                directDownloadBtn.href = downloadUrl;
-                directDownloadBtn.setAttribute('download', fileName);
-                directDownloadBtn.classList.remove('hidden');
-                openInBrowserBtn.href = downloadUrl;
-                openInBrowserBtn.classList.remove('hidden');
-                setupShareActions(downloadUrl);
-                document.getElementById('resultTitle').innerText = "VÍDEO PUBLICADO COM SUCESSO!";
-            } catch (uploadError) {
-                console.error(uploadError);
-                qrMessage.innerText = "Não foi possível publicar o QR automático. Use o botão para baixar neste aparelho.";
+            let shareUrlForHistory = null;
+            if (!blobForUpload) {
+                qrMessage.innerText = "Vídeo pronto para baixar neste aparelho.";
                 const localFileName = getSafeFileName(extension);
                 directDownloadBtn.href = url;
                 directDownloadBtn.setAttribute('download', localFileName);
@@ -900,6 +1347,48 @@
                 openInBrowserBtn.href = url;
                 openInBrowserBtn.classList.remove('hidden');
                 setupShareActions(url);
+            } else if (!isHttpContext) {
+                shareUrlForHistory = null;
+                qrMessage.innerText = "Modo arquivo local: use o servidor (node server.js → http://localhost:8080) para gerar QR com link para outros celulares. Aqui você pode baixar neste PC.";
+                const localFileName = getSafeFileName(extension);
+                directDownloadBtn.href = url;
+                directDownloadBtn.setAttribute('download', localFileName);
+                directDownloadBtn.classList.remove('hidden');
+                openInBrowserBtn.href = url;
+                openInBrowserBtn.classList.remove('hidden');
+                setupShareActions(url);
+            } else {
+                try {
+                    const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
+                    const downloadUrl = uploadInfo.downloadUrl;
+                    shareUrlForHistory = downloadUrl;
+                    const fileName = getSafeFileName(extension);
+
+                    const qrOpts = { text: downloadUrl, width: 180, height: 180 };
+                    if (typeof QRCode !== 'undefined' && QRCode.CorrectLevel) {
+                        qrOpts.correctLevel = QRCode.CorrectLevel.H;
+                    }
+                    new QRCode(qrRoot, qrOpts);
+                    qrMessage.innerText = "Escaneie o QR Code para baixar o vídeo direto no dispositivo.";
+                    directDownloadBtn.href = downloadUrl;
+                    directDownloadBtn.setAttribute('download', fileName);
+                    directDownloadBtn.classList.remove('hidden');
+                    openInBrowserBtn.href = downloadUrl;
+                    openInBrowserBtn.classList.remove('hidden');
+                    setupShareActions(downloadUrl);
+                    document.getElementById('resultTitle').innerText = "VÍDEO PUBLICADO COM SUCESSO!";
+                } catch (uploadError) {
+                    console.warn("Upload QR:", uploadError.message || uploadError);
+                    shareUrlForHistory = null;
+                    qrMessage.innerText = "Não foi possível publicar o QR. Use os botões abaixo para baixar ou abrir neste aparelho.";
+                    const localFileName = getSafeFileName(extension);
+                    directDownloadBtn.href = url;
+                    directDownloadBtn.setAttribute('download', localFileName);
+                    directDownloadBtn.classList.remove('hidden');
+                    openInBrowserBtn.href = url;
+                    openInBrowserBtn.classList.remove('hidden');
+                    setupShareActions(url);
+                }
             }
             thanksMessage.classList.remove('hidden');
             finalizedMessage.classList.remove('hidden');
@@ -929,6 +1418,7 @@
                     }
                     driveStatusMessage.classList.remove('hidden');
                 }
+                await saveFinishedVideo(blobForUpload, finalFileName, extension, partyNameInput.value.trim(), shareUrlForHistory);
             }
         }
 
@@ -939,6 +1429,10 @@
         }
 
         function showError(msg) {
+            stopRecordingProgressUI();
+            document.getElementById('recordingUI').classList.add('hidden');
+            releaseWakeLock();
+            finalizeEventBtn.disabled = false;
             document.getElementById('errorMessage').innerText = msg;
             document.getElementById('errorModal').classList.remove('hidden');
             startBtn.disabled = false;
@@ -946,8 +1440,41 @@
             isRecording = false;
         }
 
+        document.getElementById('errorModalCloseBtn').onclick = () => {
+            document.getElementById('errorModal').classList.add('hidden');
+        };
+        window.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            document.getElementById('errorModal').classList.add('hidden');
+            document.getElementById('setupArea').classList.add('hidden');
+            const hv = document.getElementById('historyViewModal');
+            if (hv && !hv.classList.contains('hidden')) {
+                const v = document.getElementById('historyViewVideo');
+                v.pause();
+                v.removeAttribute('src');
+                hv.classList.add('hidden');
+            }
+        });
+
+        document.getElementById('historyToggleBtn').onclick = () => {
+            document.getElementById('historyPanel').classList.toggle('hidden');
+        };
+        document.getElementById('historyClearBtn').onclick = async () => {
+            if (!confirm('Remover todos os vídeos salvos neste aparelho?')) return;
+            await clearFinishedHistory();
+            showNotice('Histórico limpo.');
+        };
+        document.getElementById('historyViewCloseBtn').onclick = () => {
+            const v = document.getElementById('historyViewVideo');
+            v.pause();
+            v.removeAttribute('src');
+            document.getElementById('historyViewModal').classList.add('hidden');
+        };
+
         finalizeEventBtn.onclick = finalizeEvent;
         nextVideoBtn.onclick = () => {
+            revokeLastResultUrl();
+            document.getElementById('finalVideo').removeAttribute('src');
             document.getElementById('resultArea').classList.add('hidden');
             thanksMessage.classList.add('hidden');
             finalizedMessage.classList.add('hidden');
@@ -960,6 +1487,10 @@
         });
         window.addEventListener('load', () => {
             syncQueuedDriveUploads();
+            renderHistory();
+            if (!window.crossOriginIsolated) {
+                showNotice("Para efeitos (reverso) e QR no celular: rode node server.js e abra http://localhost:8080 (ou o IP da rede na porta 8080).");
+            }
         });
         updateEffectDurationHint();
         window.onload = initCamera;

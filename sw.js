@@ -1,5 +1,5 @@
-const CACHE_NAME = "mk360-cache-v2";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
+const CACHE_NAME = "mk360-cache-v4";
+const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/vendor/tailwind-built.css"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

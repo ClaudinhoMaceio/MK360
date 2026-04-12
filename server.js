@@ -31,14 +31,15 @@ const MIME_TYPES = {
   ".webm": "video/webm",
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm"
 };
 
 function setSecurityHeaders(res) {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-  // credentialless melhora compatibilidade com recursos de CDN sem credenciais.
-  res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  // require-corp + mesma origem: ativa crossOriginIsolated / SharedArrayBuffer exigido pelo ffmpeg.wasm.
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 }
@@ -95,10 +96,13 @@ function handleRequest(req, res) {
     const filePath = path.join(UPLOAD_DIR, fileName);
     const chunks = [];
     let total = 0;
+    let uploadAborted = false;
 
     req.on("data", (chunk) => {
+      if (uploadAborted) return;
       total += chunk.length;
       if (total > MAX_UPLOAD_SIZE) {
+        uploadAborted = true;
         sendError(res, 413, "Arquivo muito grande.");
         req.destroy();
         return;
@@ -107,6 +111,7 @@ function handleRequest(req, res) {
     });
 
     req.on("end", () => {
+      if (uploadAborted) return;
       try {
         if (!chunks.length) return sendError(res, 400, "Upload vazio.");
         fs.writeFileSync(filePath, Buffer.concat(chunks));
