@@ -37,11 +37,20 @@ const MIME_TYPES = {
   ".wasm": "application/wasm"
 };
 
-function setSecurityHeaders(res) {
+/**
+ * @param {import("http").ServerResponse} res
+ * @param {{ apiRoute?: boolean }} opts — rotas /api/* usam CORP cross-origin para o browser ler JSON quando o MK360 está noutro domínio e chama o Node por CORS.
+ */
+function setSecurityHeaders(res, opts = {}) {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   // require-corp + mesma origem: ativa crossOriginIsolated / SharedArrayBuffer exigido pelo ffmpeg.wasm.
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader(
+    "Cross-Origin-Resource-Policy",
+    opts.apiRoute ? "cross-origin" : "same-origin"
+  );
+  // Garante que a política de permissões não bloqueie getUserMedia na própria origem.
+  res.setHeader("Permissions-Policy", "camera=(self)");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 }
@@ -201,11 +210,11 @@ function httpGetFollowGoogleRedirects(urlString, redirectsLeft = 10) {
 }
 
 function handleRequest(req, res) {
-  setSecurityHeaders(res);
-
   const parsedUrl = url.parse(req.url || "/");
   let pathname = decodeURIComponent(parsedUrl.pathname || "/");
   const query = new url.URLSearchParams(parsedUrl.query || "");
+  const isApiRoute = pathname.startsWith("/api/");
+  setSecurityHeaders(res, { apiRoute: isApiRoute });
 
   if (
     req.method === "OPTIONS" &&

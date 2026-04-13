@@ -683,6 +683,14 @@
         let historyBlobUrls = [];
 
         const video = document.createElement('video');
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.muted = true;
+        video.defaultMuted = true;
+        video.setAttribute('muted', '');
+        video.setAttribute('aria-hidden', 'true');
+        video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:0;top:0;';
+        document.body.appendChild(video);
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
         const startBtn = document.getElementById('startBtn');
@@ -906,6 +914,7 @@
             try {
                 testDriveBtn.disabled = true;
                 testDriveBtn.innerText = 'Testando...';
+                await warmResolveApiOrigin();
 
                 /** 1) Ping pelo servidor Node (evita CORS e JSONP que muitas vezes falha no browser). */
                 const pingProxyUrl = new URL(
@@ -989,7 +998,7 @@
                     stream = null;
                 }
                 video.srcObject = null;
-                await initCamera();
+                await initCamera({ fromUserGesture: true });
                 showNotice(`Câmera: ${cameraFacingSelect.options[cameraFacingSelect.selectedIndex].text}`);
             });
         }
@@ -1008,6 +1017,7 @@
             apiBackendUrlInput.value = localStorage.getItem(API_BACKEND_KEY) || '';
             apiBackendUrlInput.addEventListener('change', () => {
                 localStorage.setItem(API_BACKEND_KEY, apiBackendUrlInput.value.trim());
+                invalidateApiOriginCache();
                 showNotice('URL do servidor Node salva.');
             });
         }
@@ -1108,7 +1118,26 @@
         document.getElementById('musicInput').onchange = (e) => { musicFile = e.target.files[0]; };
 
         function isSecureEnvironment() {
-            return window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+            if (window.isSecureContext) return true;
+            if (location.protocol === 'https:') return true;
+            const h = String(location.hostname || '').toLowerCase();
+            return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h.endsWith('.localhost');
+        }
+
+        /** mediaDevices ou API antiga (webkit), ambas devolvem Promise. */
+        function getGetUserMediaFn() {
+            if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+                return (constraints) => navigator.mediaDevices.getUserMedia(constraints);
+            }
+            const legacy =
+                navigator.getUserMedia ||
+                navigator.webkitGetUserMedia ||
+                navigator.mozGetUserMedia;
+            if (!legacy) return null;
+            return (constraints) =>
+                new Promise((resolve, reject) => {
+                    legacy.call(navigator, constraints, resolve, reject);
+                });
         }
 
         function setReadyForNextVideo() {
@@ -1185,49 +1214,113 @@
             return destination.stream.getAudioTracks();
         }
 
-        async function initCamera() {
+        async function initCamera(opts) {
+            const fromUserGesture = !!(opts && opts.fromUserGesture);
+            const silentOnGestureNeeded = !!(opts && opts.silentOnGestureNeeded);
             try {
                 if (!isSecureEnvironment()) {
-                    showError("Este sistema precisa de HTTPS (ou localhost) para acessar a câmara.");
+                    showError(
+                        "Este sistema precisa de HTTPS, ou abrir em localhost / 127.0.0.1 (ex.: node server.js na porta 8080), para acessar a câmara. " +
+                        "No Chrome, http://IP_DA_REDE não permite câmera — use localhost ou HTTPS."
+                    );
                     return;
                 }
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
-                    showError("Navegador sem suporte completo para câmara/gravação. Atualize para Chrome/Edge recente.");
+                const gum = getGetUserMediaFn();
+                if (!gum || typeof MediaRecorder === 'undefined') {
+                    showError("Navegador sem suporte completo para câmara/gravação. Atualize para Chrome/Edge/Safari recente.");
                     return;
                 }
-                // facingMode: "user" = frontal (selfie), "environment" = traseira.
+                if (stream) {
+                    try {
+                        stream.getTracks().forEach((t) => t.stop());
+                    } catch (_) {}
+                    stream = null;
+                }
+                video.pause();
+                video.srcObject = null;
+
                 const facing = getSelectedFacingMode();
-                const cameraPrimary = {
-                    video: {
-                        facingMode: { ideal: facing },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        frameRate: { ideal: 60 }
+                const attempts = [
+                    {
+                        video: {
+                            facingMode: { ideal: facing },
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                            frameRate: { ideal: 30 }
+                        },
+                        audio: false
                     },
-                    audio: false
-                };
-                const cameraFallback = {
-                    video: { facingMode: { ideal: facing } },
-                    audio: false
-                };
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia(cameraPrimary);
-                } catch (_) {
-                    stream = await navigator.mediaDevices.getUserMedia(cameraFallback);
+                    { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+                    { video: { facingMode: { ideal: facing } }, audio: false },
+                    { video: { facingMode: facing }, audio: false },
+                    { video: true }
+                ];
+
+                let lastErr = null;
+                stream = null;
+                for (const constraints of attempts) {
+                    try {
+                        const s = await gum(constraints);
+                        if (s && s.getVideoTracks && s.getVideoTracks().length) {
+                            stream = s;
+                            break;
+                        }
+                        if (s) s.getTracks().forEach((t) => t.stop());
+                    } catch (e) {
+                        lastErr = e;
+                    }
                 }
+                if (!stream) {
+                    throw lastErr || new Error('Nenhum track de vídeo obtido.');
+                }
+
+                video.muted = true;
+                video.defaultMuted = true;
+                video.setAttribute('muted', '');
+                video.playsInline = true;
                 video.srcObject = stream;
-                video.setAttribute('playsinline', '');
-                video.play();
-                await syncCameraZoom();
-                video.onloadedmetadata = () => {
-                    canvas.width = 720; canvas.height = 1280;
+                await video.play().catch(() => {});
+
+                let previewKicked = false;
+                function kickPreviewOnce() {
+                    if (previewKicked) return;
+                    previewKicked = true;
+                    canvas.width = 720;
+                    canvas.height = 1280;
                     drawPreview();
-                };
+                    queueMicrotask(() => {
+                        syncCameraZoom().catch(() => {});
+                    });
+                }
+                video.onloadedmetadata = () => kickPreviewOnce();
+                if (video.readyState >= 1) {
+                    queueMicrotask(() => kickPreviewOnce());
+                }
+
                 isEventFinalized = false;
                 startBtn.disabled = false;
                 statusEl.innerText = `${cameraFacingLabel(facing)} · Pronto para o Evento`;
             } catch (err) {
-                showError(`${cameraFacingLabel(getSelectedFacingMode())} não disponível ou permissão negada. Use HTTPS (ou localhost), permita a câmera e teste a outra opção em Configurações.`);
+                console.error('initCamera', err);
+                const hint = err && err.name ? ` (${err.name})` : '';
+                const gestureBlock =
+                    err &&
+                    (err.name === 'NotAllowedError' ||
+                        err.name === 'SecurityError' ||
+                        err.name === 'AbortError' ||
+                        err.name === 'NotReadableError');
+                if (silentOnGestureNeeded && gestureBlock && !fromUserGesture) {
+                    statusEl.innerText = 'Toque em Iniciar para permitir a câmera';
+                    showNotice(
+                        'Neste aparelho a câmera só abre depois de um toque. Toque em Iniciar (e permita o acesso) para ativar.'
+                    );
+                    return;
+                }
+                showError(
+                    `${cameraFacingLabel(getSelectedFacingMode())} não disponível ou permissão negada. ` +
+                        `Use https:// ou http://localhost (ou 127.0.0.1) com node server.js. ` +
+                        `Em http://IP_DA_REDE o Chrome bloqueia a câmera. Teste outra câmera em Configurações.${hint}`
+                );
             }
         }
 
@@ -1241,24 +1334,35 @@
         /** Quando o browser expõe `zoom` no track (ex.: alguns Android), usa a câmera real; senão simula no canvas. */
         async function syncCameraZoom() {
             hardwareZoomActive = false;
-            if (!stream) return;
-            const track = stream.getVideoTracks()[0];
-            if (!track || typeof track.getCapabilities !== 'function') return;
-            const caps = track.getCapabilities();
-            if (!caps || caps.zoom == null) return;
-            const min = caps.zoom.min;
-            const max = caps.zoom.max;
-            if (!(max > min)) return;
-            const zf = getCameraZoomFactor();
-            let target;
-            if (zf <= 0.75) target = min;
-            else if (zf >= 1.75) target = max;
-            else target = Math.min(max, Math.max(min, 1));
             try {
-                await track.applyConstraints({ advanced: [{ zoom: target }] });
-                hardwareZoomActive = true;
-            } catch (_) {
+                if (!stream) return;
+                const track = stream.getVideoTracks()[0];
+                if (!track || typeof track.getCapabilities !== 'function') return;
+                let caps;
+                try {
+                    caps = track.getCapabilities();
+                } catch (capErr) {
+                    console.warn('getCapabilities (zoom ignorado):', capErr);
+                    return;
+                }
+                if (!caps || caps.zoom == null) return;
+                const min = caps.zoom.min;
+                const max = caps.zoom.max;
+                if (!(max > min)) return;
+                const zf = getCameraZoomFactor();
+                let target;
+                if (zf <= 0.75) target = min;
+                else if (zf >= 1.75) target = max;
+                else target = Math.min(max, Math.max(min, 1));
+                try {
+                    await track.applyConstraints({ advanced: [{ zoom: target }] });
+                    hardwareZoomActive = true;
+                } catch (_) {
+                    hardwareZoomActive = false;
+                }
+            } catch (e) {
                 hardwareZoomActive = false;
+                console.warn('syncCameraZoom ignorado:', e);
             }
         }
 
@@ -1319,7 +1423,7 @@
             }
 
             if (!stream) {
-                await initCamera();
+                await initCamera({ fromUserGesture: true });
                 if (!stream) {
                     showError("A câmara ainda não está pronta. Confirme permissões e ambiente HTTPS.");
                 return;
@@ -1666,15 +1770,71 @@
             db.close();
         }
 
-        function resolveApiOrigin() {
-            try {
-                const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
-                if (!raw) return window.location.origin;
-                const u = new URL(raw.replace(/\/$/, ''));
-                return u.origin;
-            } catch (_) {
+        let _resolvedApiOrigin = null;
+
+        function invalidateApiOriginCache() {
+            _resolvedApiOrigin = null;
+        }
+
+        /** Origem do Node para /api/* sem ping (fallback imediato). */
+        function resolveApiOriginHeuristic() {
+            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            const h = String(location.hostname || '').toLowerCase();
+            const loopback = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+            if (loopback) {
                 return window.location.origin;
             }
+            const staticHost =
+                h.endsWith('.github.io') ||
+                h.endsWith('.gitlab.io') ||
+                h.endsWith('.cloudflarepages.com') ||
+                location.protocol === 'file:';
+            if (staticHost && raw) {
+                try {
+                    return new URL(raw.replace(/\/$/, '')).origin;
+                } catch (_) {}
+            }
+            return window.location.origin;
+        }
+
+        function resolveApiOrigin() {
+            return _resolvedApiOrigin || resolveApiOriginHeuristic();
+        }
+
+        /** Descobre onde /api/upload e /api/drive-upload existem (evita localStorage apontar para o site errado). */
+        async function warmResolveApiOrigin() {
+            if (_resolvedApiOrigin) return _resolvedApiOrigin;
+            const candidates = [];
+            const h = String(location.hostname || '').toLowerCase();
+            const loopback = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+            candidates.push(window.location.origin);
+            if (!loopback) {
+                const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+                if (raw) {
+                    try {
+                        candidates.push(new URL(raw.replace(/\/$/, '')).origin);
+                    } catch (_) {}
+                }
+            }
+            const seen = new Set();
+            for (const origin of candidates) {
+                if (!origin || seen.has(origin)) continue;
+                seen.add(origin);
+                try {
+                    const r = await fetch(new URL('/api/server-info', origin).href, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+                    if (!r.ok) continue;
+                    const j = await r.json().catch(() => ({}));
+                    if (j && typeof j.origin === 'string') {
+                        _resolvedApiOrigin = origin;
+                        return _resolvedApiOrigin;
+                    }
+                } catch (_) {}
+            }
+            _resolvedApiOrigin = resolveApiOriginHeuristic();
+            return _resolvedApiOrigin;
         }
 
         function drivePublicViewUrl(payload) {
@@ -1702,6 +1862,7 @@
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
+            await warmResolveApiOrigin();
             const dataBase64 = await blobToBase64ForDrive(blob);
             const inner = {
                 action: 'upload',
@@ -1773,6 +1934,7 @@
             if (!isHttpContext) {
                 throw new Error("Upload via QR indisponível em file://. Abra em http://localhost:8080");
             }
+            await warmResolveApiOrigin();
             const uploadEndpoint = new URL(`/api/upload?ext=${encodeURIComponent(extension)}`, resolveApiOrigin());
             const response = await fetch(uploadEndpoint.href, {
                 method: 'POST',
@@ -1796,7 +1958,9 @@
             let mapAudio = recordedHasAudio ? "0:a?" : "";
 
             if (directionValue === "reverse" || directionValue === "boomerang") {
-                filterComplex = "[0:v]split[vf][vr];[vr]reverse[rv];[vf][rv]concat=n=2:v=1:a=0[v]";
+                // split=2 + setpts antes do concat: alguns WebM falham com split implícito ou PTS desalinhados no wasm.
+                filterComplex =
+                    "[0:v]split=2[vf][vr];[vr]reverse[rv];[vf]setpts=PTS-STARTPTS[s0];[rv]setpts=PTS-STARTPTS[s1];[s0][s1]concat=n=2:v=1:a=0[v]";
                 mapVideo = "[v]";
                 if (shouldSlow) {
                     filterComplex += ";[v]setpts=2.0*PTS[v2]";
@@ -1805,7 +1969,7 @@
                 if (recordedHasAudio) {
                     // areverse em WebM/Opus costuma falhar no ffmpeg.wasm — duplicar o áudio (ida+ida)
                     // alinha a duração com o vídeo ida+volta sem depender de areverse.
-                    filterComplex += ";[0:a]asplit[af][ar];[af][ar]concat=n=2:v=0:a=1[a]";
+                    filterComplex += ";[0:a]asplit=2[af][ar];[af][ar]concat=n=2:v=0:a=1[a]";
                     mapAudio = "[a]";
                     if (shouldSlow) {
                         filterComplex += ";[a]atempo=0.5[a2]";
@@ -1847,6 +2011,7 @@
                         : 'Convertendo vídeo final para MP4...';
                     ffmpeg.FS('writeFile', 'vid.webm', await fetchFile(blob));
                     let { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio } = buildFilterByEffect(directionMode, speedValue);
+                    const inFlags = ['-fflags', '+genpts'];
                     const fastExport = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
                     if (fastExport) {
                         const tag = String(mapVideo || '').trim();
@@ -1859,7 +2024,7 @@
                             videoFilter = 'scale=576:-2:flags=fast_bilinear';
                         }
                     }
-                    const command = ['-i', 'vid.webm'];
+                    const command = [...inFlags, '-i', 'vid.webm'];
                     if (filterComplex) {
                         command.push('-filter_complex', filterComplex, '-map', mapVideo);
                         if (mapAudio) command.push('-map', mapAudio);
@@ -1886,7 +2051,8 @@
                         if (directionMode === "reverse" || directionMode === "boomerang") {
                             const slow = Number(speedValue) > 0 && Number(speedValue) < 1;
                             const fe = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
-                            let vOnly = '[0:v]split[vf][vr];[vr]reverse[rv];[vf][vr]concat=n=2:v=1:a=0[v]';
+                            let vOnly =
+                                '[0:v]split=2[vf][vr];[vr]reverse[rv];[vf]setpts=PTS-STARTPTS[s0];[rv]setpts=PTS-STARTPTS[s1];[s0][s1]concat=n=2:v=1:a=0[v]';
                             if (slow) vOnly += ';[v]setpts=2.0*PTS[v2]';
                             let mapV = slow ? '[v2]' : '[v]';
                             if (fe) {
@@ -1895,6 +2061,7 @@
                             }
                             try {
                                 await ffmpeg.run(
+                                    ...inFlags,
                                     '-i', 'vid.webm',
                                     '-filter_complex', vOnly,
                                     '-map', mapV,
@@ -1905,9 +2072,15 @@
                                 showNotice('Efeito ida e volta aplicado (vídeo apenas — áudio omitido neste modo compatível).');
                             } catch (videoOnlyErr) {
                                 const vfRev = fe ? 'reverse,scale=576:-2:flags=fast_bilinear' : 'reverse';
-                                const reverseOnlyCommand = ['-i', 'vid.webm', '-vf', vfRev, '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart', 'final.mp4'];
+                                const reverseOnlyCommand = [...inFlags, '-i', 'vid.webm', '-vf', vfRev, '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart', 'final.mp4'];
                                 if (slow) {
-                                    reverseOnlyCommand.splice(3, 2, '-vf', fe ? 'reverse,setpts=2.0*PTS,scale=576:-2:flags=fast_bilinear' : 'reverse,setpts=2.0*PTS');
+                                    const vi = reverseOnlyCommand.indexOf('-vf');
+                                    if (vi >= 0) {
+                                        const vfSlow = fe
+                                            ? 'reverse,setpts=2.0*PTS,scale=576:-2:flags=fast_bilinear'
+                                            : 'reverse,setpts=2.0*PTS';
+                                        reverseOnlyCommand.splice(vi, 2, '-vf', vfSlow);
+                                    }
                                 }
                                 await ffmpeg.run(...reverseOnlyCommand);
                                 showNotice('Aviso: só foi possível o reverso simples (sem ida+volta completo). Confirme que abre pelo servidor com COOP/COEP (localhost:8080).');
@@ -2035,6 +2208,7 @@
                 openInBrowserBtn.classList.remove('hidden');
                 qrMessage.innerText = 'Pode já guardar o vídeo neste aparelho. A preparar o link público para o QR…';
                 try {
+                    await warmResolveApiOrigin();
                     const finalName = getSafeFileName(extension);
                     const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
                     const webhookConfigured = (driveWebhookInput.value || '').trim();
@@ -2081,7 +2255,18 @@
                     if (typeof QRCode !== 'undefined' && QRCode.CorrectLevel) {
                         qrOpts.correctLevel = QRCode.CorrectLevel.M;
                     }
-                    requestAnimationFrame(() => { new QRCode(qrRoot, qrOpts); });
+                    try {
+                        if (typeof QRCode === 'undefined') {
+                            throw new Error('vendor/qrcode.min.js não carregou.');
+                        }
+                        new QRCode(qrRoot, qrOpts);
+                    } catch (qrErr) {
+                        console.error('QRCode:', qrErr);
+                        qrMessage.innerText =
+                            (shareUrl.indexOf('drive.google.com') >= 0
+                                ? 'Link Drive pronto, mas o QR não foi desenhado. '
+                                : 'Link pronto, mas o QR não foi desenhado. ') + (qrErr && qrErr.message ? qrErr.message : '');
+                    }
                     qrMessage.innerText = shareUrl.indexOf('drive.google.com') >= 0
                         ? 'QR aponta para o vídeo no Google Drive (abrir ou transferir no telemóvel).'
                         : 'Escaneie o QR Code para baixar o vídeo direto no dispositivo.';
@@ -2095,7 +2280,11 @@
                 } catch (uploadError) {
                     console.warn("Publicar link:", uploadError.message || uploadError);
                     shareUrlForHistory = null;
-                    qrMessage.innerText = "Não foi possível publicar link (QR / WhatsApp / Web). Confirme URL do Node ou Drive em Configurações, ou use baixar neste aparelho.";
+                    const detail = uploadError && uploadError.message ? String(uploadError.message).slice(0, 220) : '';
+                    qrMessage.innerText =
+                        "Não foi possível publicar link (QR / WhatsApp / Web). " +
+                        (detail ? `Detalhe: ${detail} ` : '') +
+                        "Confirme node server.js, URL do Node em site estático (se usar GitHub Pages), webhook Drive e modo de partilha. Pode baixar o ficheiro local abaixo.";
                     const localFileName = getSafeFileName(extension);
                     directDownloadBtn.href = url;
                     directDownloadBtn.setAttribute('download', localFileName);
@@ -2212,12 +2401,16 @@
         window.addEventListener('load', () => {
             syncQueuedDriveUploads();
             renderHistory();
+            warmResolveApiOrigin().catch(() => {});
             if (!window.crossOriginIsolated) {
-                showNotice("Para efeitos (reverso) e QR no celular: rode node server.js e abra http://localhost:8080 (ou o IP da rede na porta 8080).");
+                showNotice(
+                    "Para efeitos (reverso) e FFmpeg: rode node server.js em http://localhost:8080. " +
+                        "Para o QR no telemóvel pode usar o IP da rede, mas a câmera no PC tem de ser localhost ou HTTPS."
+                );
             }
+            initCamera({ silentOnGestureNeeded: true });
         });
         updateEffectDurationHint();
-        window.onload = initCamera;
     </script>
 </body>
 </html>
