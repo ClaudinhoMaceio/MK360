@@ -17,6 +17,10 @@ const ROOT_DIR = __dirname;
 const TLS_KEY_PATH = path.join(ROOT_DIR, "certs", "localhost-key.pem");
 const TLS_CERT_PATH = path.join(ROOT_DIR, "certs", "localhost.pem");
 const UPLOAD_DIR = path.join(ROOT_DIR, "uploads");
+/** Origem pública (ex.: https://mk360.seudominio.com) para links de /download no QR. Evita localhost quando o upload chega via túnel/proxy. */
+const MK360_PUBLIC_ORIGIN = String(process.env.MK360_PUBLIC_ORIGIN || "")
+  .trim()
+  .replace(/\/$/, "");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -234,7 +238,8 @@ function handleRequest(req, res) {
     const protocol = req.socket.encrypted ? "https" : "http";
     return apiJson(req, res, 200, {
       origin: `${protocol}://${hostHeader}`,
-      lanOrigin: `http://${getLanIPv4()}:${HTTP_PORT}`
+      lanOrigin: `http://${getLanIPv4()}:${HTTP_PORT}`,
+      publicDownloadOrigin: MK360_PUBLIC_ORIGIN || null
     });
   }
 
@@ -356,11 +361,13 @@ function handleRequest(req, res) {
           ? `http://${getLanIPv4()}:${HTTP_PORT}`
           : currentOrigin;
         const downloadPath = `/download/${fileName}`;
+        const downloadBase = MK360_PUBLIC_ORIGIN || bestOrigin;
         return apiJson(req, res, 200, {
           ok: true,
           id: videoId,
           downloadPath,
-          downloadUrl: `${bestOrigin}${downloadPath}`
+          downloadUrl: `${downloadBase}${downloadPath}`,
+          publicDownloadOrigin: MK360_PUBLIC_ORIGIN || null
         });
       } catch (error) {
         return apiSendError(req, res, 500, `Falha no upload: ${error.message}`);
@@ -419,6 +426,9 @@ function startHttpServer() {
     console.log(`[OK] HTTP Local:  http://localhost:${HTTP_PORT}`);
     console.log(`[OK] HTTP Rede :  http://${lanIp}:${HTTP_PORT}`);
     console.log("[INFO] Use o endereco de rede para leitura de QR no celular.");
+    if (MK360_PUBLIC_ORIGIN) {
+      console.log(`[INFO] MK360_PUBLIC_ORIGIN=${MK360_PUBLIC_ORIGIN} (links /download no JSON).`);
+    }
   });
 }
 

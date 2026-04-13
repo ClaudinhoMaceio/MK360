@@ -505,12 +505,16 @@
                         </select>
                     </div>
                     <div class="space-y-1">
-                        <label class="block field-label">Direção</label>
-                        <select id="directionEffect" class="effect-select">
-                            <option value="normal">Normal</option>
-                            <option value="reverse">Reverso (Ida e Volta)</option>
-                            <option value="boomerang">Boomerang</option>
+                        <label class="block field-label">Efeitos (FFmpeg)</label>
+                        <select id="directionEffect" class="effect-select" title="Filtros oficiais: reverse, concat, hflip, negate, format=gray">
+                            <option value="normal" selected>Normal</option>
+                            <option value="reverse_full">Reverso — vídeo ao contrário (reverse)</option>
+                            <option value="boomerang">Boomerang — ida e volta (reverse + concat)</option>
+                            <option value="mirror">Espelho — horizontal (hflip)</option>
+                            <option value="negative">Negativo (negate)</option>
+                            <option value="grayscale">Preto e branco (format=gray)</option>
                         </select>
+                        <p class="text-[10px] text-slate-500 leading-snug">Câmera lenta continua em <strong class="text-slate-400">Velocidade</strong> (setpts / atempo); combine com qualquer efeito acima.</p>
                     </div>
                 </div>
                 <p id="effectDurationHint" class="text-[11px] text-slate-300 font-bold">Duração final estimada: 10s</p>
@@ -524,8 +528,8 @@
                 <div class="space-y-1 pt-2 border-t border-white/10">
                     <label class="block field-label">Site estático (GitHub Pages / Hugo)</label>
                     <label class="block field-label">URL pública do <code class="text-yellow-200/90">server.js</code></label>
-                    <input type="text" id="apiBackendUrlInput" placeholder="https://seu-servidor.com:8080 — vazio = este site" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
-                    <p class="text-[10px] text-slate-400 leading-relaxed">Se o MK360 está noutro domínio (ex.: <code class="text-slate-300">*.github.io</code>), coloque aqui o endereço onde o Node está na Internet (HTTPS de preferência). Esse host responde a <code class="text-slate-300">/api/upload</code> e <code class="text-slate-300">/api/drive-upload</code> com CORS.</p>
+                    <input type="text" id="apiBackendUrlInput" placeholder="https://seu-tunel-ou-vps.com — obrigatório em GitHub Pages" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+                    <p class="text-[10px] text-slate-400 leading-relaxed">Se publicou em <code class="text-slate-300">https://…github.io/MK360/</code>, o browser <strong class="text-slate-200">não pode</strong> usar <code class="text-slate-300">localhost</code> nem <code class="text-slate-300">http://</code> a partir de HTTPS: indique aqui a mesma origem onde corre o <code class="text-slate-300">server.js</code> na Internet (<strong class="text-slate-200">HTTPS</strong>, ex. Cloudflare Tunnel, ngrok, VPS). O QR e o Drive usam esse host para <code class="text-slate-300">/api/upload</code> e <code class="text-slate-300">/api/drive-upload</code>. No servidor pode definir <code class="text-slate-300">MK360_PUBLIC_ORIGIN</code> para o link de download coincidir com esse URL.</p>
                     <label class="block field-label">Origem do link (QR, WhatsApp, Web, AirDrop)</label>
                     <select id="shareModeSelect" class="effect-select">
                         <option value="auto">Automático: servidor; se falhar → Google Drive</option>
@@ -836,12 +840,24 @@
             recordingProgressRafId = requestAnimationFrame(tick);
         }
 
+        function directionEffectLabel(val) {
+            const m = {
+                normal: 'Normal',
+                reverse_full: 'Reverso',
+                boomerang: 'Boomerang',
+                mirror: 'Espelho',
+                negative: 'Negativo',
+                grayscale: 'P&B'
+            };
+            return m[val] || val;
+        }
+
         function updateEffectDurationHint() {
             const base = Number(durationInput.value || 0);
             const direction = directionEffectInput.value;
             const speed = Number(speedEffectInput.value || 1);
             let finalSeconds = base;
-            if (direction === 'reverse' || direction === 'boomerang') finalSeconds *= 2;
+            if (direction === 'boomerang') finalSeconds *= 2;
             if (speed > 0 && speed < 1) finalSeconds = finalSeconds / speed;
             effectDurationHint.innerText = `Duração final estimada: ${Math.round(finalSeconds)}s`;
 
@@ -850,7 +866,7 @@
             if (hasSpeedEffect || hasDirectionEffect) {
                 const labels = [];
                 if (hasSpeedEffect) labels.push(`Velocidade ${speed}x`);
-                if (hasDirectionEffect) labels.push(`Direção ${direction}`);
+                if (hasDirectionEffect) labels.push(directionEffectLabel(direction));
                 effectActiveBadge.innerText = `Efeito ativo: ${labels.join(' | ')}`;
                 effectActiveBadge.classList.remove('hidden');
             } else {
@@ -909,6 +925,12 @@
             }
             if (!isHttpContext) {
                 renderDriveStatus(false, 'Abra em http://localhost:8080 para testar.');
+                return false;
+            }
+            try {
+                assertPublicNodeConfiguredForStaticHost();
+            } catch (e) {
+                renderDriveStatus(false, e.message || String(e));
                 return false;
             }
             try {
@@ -1776,6 +1798,24 @@
             _resolvedApiOrigin = null;
         }
 
+        function isStaticPagesHost(hostname) {
+            const h = String(hostname || '').toLowerCase();
+            return (
+                h.endsWith('.github.io') ||
+                h.endsWith('.gitlab.io') ||
+                h.endsWith('.cloudflarepages.com')
+            );
+        }
+
+        function isLocalDevOriginString(originStr) {
+            try {
+                const u = new URL(originStr);
+                return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+            } catch (_) {
+                return true;
+            }
+        }
+
         /** Origem do Node para /api/* sem ping (fallback imediato). */
         function resolveApiOriginHeuristic() {
             const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
@@ -1785,10 +1825,7 @@
                 return window.location.origin;
             }
             const staticHost =
-                h.endsWith('.github.io') ||
-                h.endsWith('.gitlab.io') ||
-                h.endsWith('.cloudflarepages.com') ||
-                location.protocol === 'file:';
+                isStaticPagesHost(h) || location.protocol === 'file:';
             if (staticHost && raw) {
                 try {
                     return new URL(raw.replace(/\/$/, '')).origin;
@@ -1801,21 +1838,103 @@
             return _resolvedApiOrigin || resolveApiOriginHeuristic();
         }
 
-        /** Descobre onde /api/upload e /api/drive-upload existem (evita localStorage apontar para o site errado). */
+        /** Ajusta downloadUrl devolvido pelo Node (localhost / rede) para a origem pública configurada em GitHub Pages, etc. */
+        function assertPublicNodeConfiguredForStaticHost() {
+            const h = String(location.hostname || '').toLowerCase();
+            if (!isStaticPagesHost(h)) return;
+            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            if (!raw) {
+                throw new Error(
+                    'Em GitHub Pages é obrigatório preencher em Configurações a URL HTTPS pública onde corre o node server.js (não use vazio nem localhost).'
+                );
+            }
+            if (/localhost|127\.0\.0\.1/i.test(raw)) {
+                throw new Error(
+                    'Em GitHub Pages o campo do Node não pode ser localhost — use HTTPS do seu túnel ou servidor (ex.: Cloudflare Tunnel).'
+                );
+            }
+        }
+
+        function normalizeUploadResponse(info) {
+            if (!info || typeof info.downloadUrl !== 'string') return info;
+            let out = info.downloadUrl;
+            if (info.publicDownloadOrigin && String(info.publicDownloadOrigin).trim()) {
+                try {
+                    const base = new URL(String(info.publicDownloadOrigin).trim().replace(/\/$/, ''));
+                    const parts = new URL(info.downloadUrl);
+                    out = base.origin + parts.pathname + parts.search;
+                } catch (_) {}
+            }
+            try {
+                const d = new URL(out);
+                const ph = String(location.hostname || '').toLowerCase();
+                const onStatic = isStaticPagesHost(ph);
+                const privateOrLoop =
+                    d.hostname === 'localhost' ||
+                    d.hostname === '127.0.0.1' ||
+                    /^192\.168\.\d+\.\d+$/.test(d.hostname) ||
+                    /^10\.\d+\.\d+\.\d+$/.test(d.hostname);
+                if (onStatic && privateOrLoop) {
+                    const api = resolveApiOrigin();
+                    const b = new URL(api);
+                    out = `${b.origin}${d.pathname}${d.search}`;
+                }
+            } catch (_) {}
+            return { ...info, downloadUrl: out };
+        }
+
+        /** Descobre onde /api/upload e /api/drive-upload existem (GitHub Pages: nunca localhost primeiro). */
         async function warmResolveApiOrigin() {
             if (_resolvedApiOrigin) return _resolvedApiOrigin;
-            const candidates = [];
             const h = String(location.hostname || '').toLowerCase();
             const loopback = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
-            candidates.push(window.location.origin);
-            if (!loopback) {
-                const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
-                if (raw) {
-                    try {
-                        candidates.push(new URL(raw.replace(/\/$/, '')).origin);
-                    } catch (_) {}
+            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            let configuredOrigin = null;
+            if (raw) {
+                try {
+                    configuredOrigin = new URL(raw.replace(/\/$/, '')).origin;
+                } catch (_) {}
+            }
+            const pageHttps = location.protocol === 'https:';
+            const onStatic = isStaticPagesHost(h);
+
+            function unusableFromThisPage(origin) {
+                if (!origin) return true;
+                try {
+                    const u = new URL(origin);
+                    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+                        if (pageHttps) return true;
+                        if (onStatic) return true;
+                    }
+                    if (pageHttps && u.protocol === 'http:' && u.hostname !== '127.0.0.1' && u.hostname !== 'localhost') {
+                        return true;
+                    }
+                } catch (_) {
+                    return true;
+                }
+                return false;
+            }
+
+            const candidates = [];
+            if (loopback) {
+                candidates.push(window.location.origin);
+            } else {
+                if (configuredOrigin && !unusableFromThisPage(configuredOrigin)) {
+                    candidates.push(configuredOrigin);
+                }
+                const here = window.location.origin;
+                if (!unusableFromThisPage(here)) {
+                    candidates.push(here);
+                }
+                if (
+                    configuredOrigin &&
+                    !candidates.includes(configuredOrigin) &&
+                    !unusableFromThisPage(configuredOrigin)
+                ) {
+                    candidates.push(configuredOrigin);
                 }
             }
+
             const seen = new Set();
             for (const origin of candidates) {
                 if (!origin || seen.has(origin)) continue;
@@ -1862,6 +1981,7 @@
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
+            assertPublicNodeConfiguredForStaticHost();
             await warmResolveApiOrigin();
             const dataBase64 = await blobToBase64ForDrive(blob);
             const inner = {
@@ -1934,6 +2054,7 @@
             if (!isHttpContext) {
                 throw new Error("Upload via QR indisponível em file://. Abra em http://localhost:8080");
             }
+            assertPublicNodeConfiguredForStaticHost();
             await warmResolveApiOrigin();
             const uploadEndpoint = new URL(`/api/upload?ext=${encodeURIComponent(extension)}`, resolveApiOrigin());
             const response = await fetch(uploadEndpoint.href, {
@@ -1945,7 +2066,8 @@
                 const errText = await response.text().catch(() => "");
                 throw new Error(errText || `Falha ao enviar vídeo para o QR (${response.status})`);
             }
-            return response.json();
+            const json = await response.json();
+            return normalizeUploadResponse(json);
         }
 
         function buildFilterByEffect(directionValue, speedValue) {
@@ -1957,8 +2079,8 @@
             let mapVideo = "0:v";
             let mapAudio = recordedHasAudio ? "0:a?" : "";
 
-            if (directionValue === "reverse" || directionValue === "boomerang") {
-                // split=2 + setpts antes do concat: alguns WebM falham com split implícito ou PTS desalinhados no wasm.
+            if (directionValue === "boomerang") {
+                // Documentação FFmpeg: reverse + concat — ida e volta no vídeo.
                 filterComplex =
                     "[0:v]split=2[vf][vr];[vr]reverse[rv];[vf]setpts=PTS-STARTPTS[s0];[rv]setpts=PTS-STARTPTS[s1];[s0][s1]concat=n=2:v=1:a=0[v]";
                 mapVideo = "[v]";
@@ -1967,14 +2089,35 @@
                     mapVideo = "[v2]";
                 }
                 if (recordedHasAudio) {
-                    // areverse em WebM/Opus costuma falhar no ffmpeg.wasm — duplicar o áudio (ida+ida)
-                    // alinha a duração com o vídeo ida+volta sem depender de areverse.
                     filterComplex += ";[0:a]asplit=2[af][ar];[af][ar]concat=n=2:v=0:a=1[a]";
                     mapAudio = "[a]";
                     if (shouldSlow) {
                         filterComplex += ";[a]atempo=0.5[a2]";
                         mapAudio = "[a2]";
                     }
+                }
+                return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
+            }
+
+            if (directionValue === "reverse_full") {
+                // FFmpeg filtro "reverse": reproduz o vídeo inteiro ao contrário (≠ boomerang).
+                videoFilter = shouldSlow ? "setpts=2.0*PTS,reverse" : "reverse";
+                if (recordedHasAudio) {
+                    audioFilter = shouldSlow ? "atempo=0.5,areverse" : "areverse";
+                }
+                return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
+            }
+
+            const simpleFx = {
+                mirror: "hflip",
+                negative: "negate",
+                grayscale: "format=gray"
+            };
+            if (simpleFx[directionValue]) {
+                videoFilter = simpleFx[directionValue];
+                if (shouldSlow) {
+                    videoFilter += ",setpts=2.0*PTS";
+                    if (recordedHasAudio) audioFilter = "atempo=0.5";
                 }
                 return { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio };
             }
@@ -2048,9 +2191,9 @@
                     try {
                         await ffmpeg.run(...command);
                     } catch (primaryRunError) {
-                        if (directionMode === "reverse" || directionMode === "boomerang") {
-                            const slow = Number(speedValue) > 0 && Number(speedValue) < 1;
-                            const fe = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
+                        const slow = Number(speedValue) > 0 && Number(speedValue) < 1;
+                        const fe = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
+                        if (directionMode === "boomerang") {
                             let vOnly =
                                 '[0:v]split=2[vf][vr];[vr]reverse[rv];[vf]setpts=PTS-STARTPTS[s0];[rv]setpts=PTS-STARTPTS[s1];[s0][s1]concat=n=2:v=1:a=0[v]';
                             if (slow) vOnly += ';[v]setpts=2.0*PTS[v2]';
@@ -2069,7 +2212,7 @@
                                     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart',
                                     'final.mp4'
                                 );
-                                showNotice('Efeito ida e volta aplicado (vídeo apenas — áudio omitido neste modo compatível).');
+                                showNotice('Boomerang aplicado (vídeo apenas — áudio omitido neste modo compatível).');
                             } catch (videoOnlyErr) {
                                 const vfRev = fe ? 'reverse,scale=576:-2:flags=fast_bilinear' : 'reverse';
                                 const reverseOnlyCommand = [...inFlags, '-i', 'vid.webm', '-vf', vfRev, '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart', 'final.mp4'];
@@ -2083,9 +2226,37 @@
                                     }
                                 }
                                 await ffmpeg.run(...reverseOnlyCommand);
-                                showNotice('Aviso: só foi possível o reverso simples (sem ida+volta completo). Confirme que abre pelo servidor com COOP/COEP (localhost:8080).');
-                                console.warn('FFmpeg fallback cadeia:', primaryRunError, videoOnlyErr);
+                                showNotice('Boomerang indisponível: aplicado reverso simples. Confirme servidor com COOP/COEP (localhost:8080).');
+                                console.warn('FFmpeg fallback boomerang:', primaryRunError, videoOnlyErr);
                             }
+                        } else if (directionMode === "reverse_full") {
+                            const vfBase = slow
+                                ? (fe ? 'setpts=2.0*PTS,reverse,scale=576:-2:flags=fast_bilinear' : 'setpts=2.0*PTS,reverse')
+                                : fe
+                                    ? 'reverse,scale=576:-2:flags=fast_bilinear'
+                                    : 'reverse';
+                            const reverseOnlyCommand = [
+                                ...inFlags,
+                                '-i',
+                                'vid.webm',
+                                '-vf',
+                                vfBase,
+                                '-an',
+                                '-c:v',
+                                'libx264',
+                                '-preset',
+                                'ultrafast',
+                                '-tune',
+                                'fastdecode',
+                                '-crf',
+                                fe ? '30' : '24',
+                                '-movflags',
+                                '+faststart',
+                                'final.mp4'
+                            ];
+                            await ffmpeg.run(...reverseOnlyCommand);
+                            showNotice('Reverso: vídeo ao contrário (áudio omitido se o áudio invertido falhou no passo principal).');
+                            console.warn('FFmpeg fallback reverse_full:', primaryRunError);
                         } else {
                             throw primaryRunError;
                         }
@@ -2398,10 +2569,22 @@
             showNotice("Internet voltou. Sincronizando vídeos pendentes com o Drive...");
             syncQueuedDriveUploads();
         });
+        function warnGithubPagesNeedsPublicNode() {
+            const h = String(location.hostname || '').toLowerCase();
+            if (!isStaticPagesHost(h)) return;
+            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            if (!raw || /localhost|127\.0\.0\.1/i.test(raw)) {
+                showNotice(
+                    'Site em GitHub Pages: em Configurações preencha a URL HTTPS pública do Node (localhost não funciona para API nem para o QR a partir deste site).'
+                );
+            }
+        }
+
         window.addEventListener('load', () => {
             syncQueuedDriveUploads();
             renderHistory();
             warmResolveApiOrigin().catch(() => {});
+            warnGithubPagesNeedsPublicNode();
             if (!window.crossOriginIsolated) {
                 showNotice(
                     "Para efeitos (reverso) e FFmpeg: rode node server.js em http://localhost:8080. " +
