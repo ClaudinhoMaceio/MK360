@@ -10,6 +10,8 @@ const HOST = "0.0.0.0";
 const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
 const HTTPS_PORT = Number(process.env.HTTPS_PORT || 8443);
 const MAX_UPLOAD_SIZE = 300 * 1024 * 1024;
+/** JSON enviado ao proxy do Drive (base64 + metadados). Apps Script costuma falhar acima de ~45–50 MB. */
+const MAX_DRIVE_PROXY_JSON = 52 * 1024 * 1024;
 
 const ROOT_DIR = __dirname;
 const TLS_KEY_PATH = path.join(ROOT_DIR, "certs", "localhost-key.pem");
@@ -71,6 +73,133 @@ function sendError(res, status, message) {
   res.end(message);
 }
 
+/** Permite o site estático (GitHub Pages, Hugo, etc.) chamar /api/upload e /api/drive-upload noutro domínio. */
+function applyApiCors(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function apiJson(req, res, status, payload) {
+  applyApiCors(req, res);
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(payload));
+}
+
+function apiSendError(req, res, status, message) {
+  applyApiCors(req, res);
+  res.statusCode = status;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end(message);
+}
+
+/**
+ * O browser costuma falhar ao POSTar JSON para script.google.com (CORS / redirecionamento sem corpo).
+ * O servidor reenvia o mesmo JSON e segue 302/307 até script.googleusercontent.com.
+ */
+function isAllowedDriveWebhookUrl(webhookUrl) {
+  try {
+    const u = new URL(webhookUrl);
+    const p = String(u.pathname || "").replace(/\/$/, "");
+    return (
+      u.protocol === "https:" &&
+      u.hostname === "script.google.com" &&
+      /^\/macros\/s\/[^/]+\/exec$/.test(p)
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function postJsonFollowGoogleRedirects(urlString, jsonBody, redirectsLeft = 10) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      u = new URL(urlString);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const lib = isHttps ? https : http;
+    const options = {
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + u.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": Buffer.byteLength(jsonBody, "utf8"),
+      },
+    };
+    const req = lib.request(options, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        const text = buf.toString("utf8");
+        const code = res.statusCode || 0;
+        if ([301, 302, 303, 307, 308].includes(code) && res.headers.location) {
+          if (redirectsLeft <= 0) {
+            reject(new Error("Muitos redirecionamentos ao contactar o Google Apps Script."));
+            return;
+          }
+          const next = new URL(res.headers.location, u).href;
+          resolve(postJsonFollowGoogleRedirects(next, jsonBody, redirectsLeft - 1));
+          return;
+        }
+        resolve({ statusCode: code, body: text });
+      });
+    });
+    req.on("error", reject);
+    req.write(jsonBody);
+    req.end();
+  });
+}
+
+/** GET ao /exec?action=ping (sem JSONP), seguindo redirecionamentos do Google. */
+function httpGetFollowGoogleRedirects(urlString, redirectsLeft = 10) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      u = new URL(urlString);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const lib = isHttps ? https : http;
+    const options = {
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + u.search,
+      method: "GET",
+      headers: { Accept: "application/json, */*" },
+    };
+    const reqLib = lib.request(options, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        const code = res.statusCode || 0;
+        if ([301, 302, 303, 307, 308].includes(code) && res.headers.location) {
+          if (redirectsLeft <= 0) {
+            reject(new Error("Muitos redirecionamentos ao contactar o Google Apps Script."));
+            return;
+          }
+          const next = new URL(res.headers.location, u).href;
+          resolve(httpGetFollowGoogleRedirects(next, redirectsLeft - 1));
+          return;
+        }
+        resolve({ statusCode: code, body: text });
+      });
+    });
+    reqLib.on("error", reject);
+    reqLib.end();
+  });
+}
+
 function handleRequest(req, res) {
   setSecurityHeaders(res);
 
@@ -78,13 +207,108 @@ function handleRequest(req, res) {
   let pathname = decodeURIComponent(parsedUrl.pathname || "/");
   const query = new url.URLSearchParams(parsedUrl.query || "");
 
+  if (
+    req.method === "OPTIONS" &&
+    (pathname === "/api/server-info" ||
+      pathname === "/api/upload" ||
+      pathname === "/api/drive-upload" ||
+      pathname === "/api/drive-ping")
+  ) {
+    applyApiCors(req, res);
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/api/server-info") {
     const hostHeader = req.headers.host || `${getLanIPv4()}:${HTTP_PORT}`;
     const protocol = req.socket.encrypted ? "https" : "http";
-    return asJson(res, 200, {
+    return apiJson(req, res, 200, {
       origin: `${protocol}://${hostHeader}`,
       lanOrigin: `http://${getLanIPv4()}:${HTTP_PORT}`
     });
+  }
+
+  if (req.method === "GET" && pathname === "/api/drive-ping") {
+    const webhook = String(query.get("webhook") || "").trim();
+    if (!isAllowedDriveWebhookUrl(webhook)) {
+      apiSendError(req, res, 400, "URL do webhook invalida (use https://script.google.com/macros/s/.../exec).");
+      return;
+    }
+    const pingUrl = new URL(webhook);
+    pingUrl.searchParams.set("action", "ping");
+    httpGetFollowGoogleRedirects(pingUrl.toString())
+      .then(({ statusCode, body }) => {
+        const trimmed = String(body || "").trim();
+        if (!trimmed.startsWith("{")) {
+          apiJson(req, res, 502, {
+            ok: false,
+            error:
+              "Resposta nao-JSON do Google. Confirme a URL /exec, implementacao Web (qualquer pessoa) e nova versao publicada.",
+          });
+          return;
+        }
+        applyApiCors(req, res);
+        res.statusCode = statusCode >= 200 && statusCode < 600 ? statusCode : 502;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(trimmed);
+      })
+      .catch((e) => apiJson(req, res, 502, { ok: false, error: String(e.message || e) }));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/drive-upload") {
+    const chunks = [];
+    let total = 0;
+    let aborted = false;
+    req.on("data", (chunk) => {
+      if (aborted) return;
+      total += chunk.length;
+      if (total > MAX_DRIVE_PROXY_JSON) {
+        aborted = true;
+        apiSendError(req, res, 413, "Pedido demasiado grande para o Drive (reduza a duração ou a qualidade).");
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", async () => {
+      if (aborted) return;
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        if (!raw) return apiSendError(req, res, 400, "Corpo vazio.");
+        let body;
+        try {
+          body = JSON.parse(raw);
+        } catch (_) {
+          return apiSendError(req, res, 400, "JSON invalido.");
+        }
+        const webhook = String(body.webhook || "").trim();
+        if (!isAllowedDriveWebhookUrl(webhook)) {
+          return apiSendError(req, res, 400, "URL do webhook invalida (use https://script.google.com/macros/s/.../exec).");
+        }
+        const forward = {
+          action: "upload",
+          fileName: body.fileName,
+          eventName: body.eventName,
+          contentType: body.contentType,
+          dataBase64: body.dataBase64,
+        };
+        if (!forward.dataBase64 || typeof forward.dataBase64 !== "string") {
+          return apiSendError(req, res, 400, "dataBase64 ausente.");
+        }
+        const payloadStr = JSON.stringify(forward);
+        const { statusCode, body: respText } = await postJsonFollowGoogleRedirects(webhook, payloadStr);
+        applyApiCors(req, res);
+        res.statusCode = statusCode >= 200 && statusCode < 600 ? statusCode : 502;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(respText || "{}");
+      } catch (e) {
+        apiJson(req, res, 502, { ok: false, error: String(e && e.message ? e.message : e) });
+      }
+    });
+    req.on("error", () => apiJson(req, res, 500, { ok: false, error: "Erro ao ler pedido." }));
+    return;
   }
 
   if (req.method === "POST" && pathname === "/api/upload") {
@@ -103,7 +327,7 @@ function handleRequest(req, res) {
       total += chunk.length;
       if (total > MAX_UPLOAD_SIZE) {
         uploadAborted = true;
-        sendError(res, 413, "Arquivo muito grande.");
+        apiSendError(req, res, 413, "Arquivo muito grande.");
         req.destroy();
         return;
       }
@@ -113,7 +337,7 @@ function handleRequest(req, res) {
     req.on("end", () => {
       if (uploadAborted) return;
       try {
-        if (!chunks.length) return sendError(res, 400, "Upload vazio.");
+        if (!chunks.length) return apiSendError(req, res, 400, "Upload vazio.");
         fs.writeFileSync(filePath, Buffer.concat(chunks));
         const hostHeader = req.headers.host || `${getLanIPv4()}:${HTTP_PORT}`;
         const protocol = req.socket.encrypted ? "https" : "http";
@@ -123,18 +347,18 @@ function handleRequest(req, res) {
           ? `http://${getLanIPv4()}:${HTTP_PORT}`
           : currentOrigin;
         const downloadPath = `/download/${fileName}`;
-        return asJson(res, 200, {
+        return apiJson(req, res, 200, {
           ok: true,
           id: videoId,
           downloadPath,
           downloadUrl: `${bestOrigin}${downloadPath}`
         });
       } catch (error) {
-        return sendError(res, 500, `Falha no upload: ${error.message}`);
+        return apiSendError(req, res, 500, `Falha no upload: ${error.message}`);
       }
     });
 
-    req.on("error", () => sendError(res, 500, "Erro no upload."));
+    req.on("error", () => apiSendError(req, res, 500, "Erro no upload."));
     return;
   }
 

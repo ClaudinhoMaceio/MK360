@@ -6,6 +6,13 @@
  *
  * Cada upload do MK360 grava um arquivo nesta pasta (nome: Evento_data_nome.ext).
  *
+ * Formato do POST: application/json com campo dataBase64 (vídeo em Base64).
+ * Corpo binário cru (octet-stream) costuma chegar vazio no Apps Script — não use.
+ *
+ * Recomendado no MK360: enviar via servidor Node (POST /api/drive-upload), que reencaminha
+ * para este /exec e segue redirecionamentos HTTPS com o JSON intacto (o fetch direto do
+ * browser para script.google.com costuma falhar por CORS ou corpo perdido no redirect).
+ *
  * URL da APLICAÇÃO WEB (use esta no MK360, campo Webhook — termina em /exec):
  *   https://script.google.com/macros/s/AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_/exec
  *
@@ -22,6 +29,9 @@
  * 5) Copiar URL /exec para o MK360 e clicar em Salvar Drive / Testar Conexão.
  *
  * Se abrir o /exec no browser e aparecer login Google, reveja o passo 4 ou crie nova versão da implementação.
+ *
+ * Após criar o ficheiro, o script tenta setSharing(ANYONE_WITH_LINK, VIEW) para o link viewUrl do QR funcionar
+ * sem login. Contas Google Workspace podem bloquear partilha pública — nesse caso verifique sharingWarning na resposta JSON.
  */
 
 const FOLDER_ID = "1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq";
@@ -56,31 +66,85 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const action = (e && e.parameter && e.parameter.action) || "upload";
-    if (action !== "upload") {
-      return jsonOut({ ok: false, error: "action inválida" });
-    }
-
-    const folder = DriveApp.getFolderById(FOLDER_ID);
-    const fileName = sanitizeName((e.parameter.fileName || "MK360_video.webm"));
-    const eventName = sanitizeName((e.parameter.eventName || "Evento"));
-    const contentType = e.parameter.contentType || "application/octet-stream";
-    const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
-    const finalName = `${eventName}_${now}_${fileName}`;
-
     if (!e.postData || !e.postData.contents) {
       return jsonOut({ ok: false, error: "Corpo vazio." });
     }
 
+    var folder;
+    try {
+      folder = DriveApp.getFolderById(FOLDER_ID);
+    } catch (folderErr) {
+      return jsonOut({
+        ok: false,
+        error: "Sem acesso à pasta do Drive (confirme FOLDER_ID e partilhe a pasta com a conta que executa este script): " + String(folderErr)
+      });
+    }
+    const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
+    const type = String((e.postData && e.postData.type) || "").toLowerCase();
+
+    /** JSON + Base64: único fluxo fiável para vídeo no navegador → Apps Script. */
+    if (type.indexOf("application/json") !== -1) {
+      const body = JSON.parse(e.postData.contents);
+      const action = body.action || (e.parameter && e.parameter.action) || "upload";
+      if (action !== "upload") {
+        return jsonOut({ ok: false, error: "action inválida" });
+      }
+      const fileName = sanitizeName(body.fileName || "MK360_video.webm");
+      const eventName = sanitizeName(body.eventName || "Evento");
+      const contentType = body.contentType || "application/octet-stream";
+      const b64 = body.dataBase64;
+      if (!b64 || typeof b64 !== "string") {
+        return jsonOut({ ok: false, error: "dataBase64 ausente ou inválido." });
+      }
+      const finalName = eventName + "_" + now + "_" + fileName;
+      const bytes = Utilities.base64Decode(b64);
+      const blob = Utilities.newBlob(bytes, contentType, finalName);
+      const file = folder.createFile(blob);
+      var shareWarning = null;
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (shareErr) {
+        shareWarning = String(shareErr);
+      }
+      var fid = file.getId();
+      var out = {
+        ok: true,
+        fileId: fid,
+        fileName: file.getName(),
+        fileUrl: file.getUrl(),
+        viewUrl: "https://drive.google.com/file/d/" + fid + "/view?usp=sharing"
+      };
+      if (shareWarning) out.sharingWarning = shareWarning;
+      return jsonOut(out);
+    }
+
+    /** Legado: octet-stream + metadados na query (binário cru frequentemente falha). */
+    const action = (e && e.parameter && e.parameter.action) || "upload";
+    if (action !== "upload") {
+      return jsonOut({ ok: false, error: "action inválida" });
+    }
+    const fileName = sanitizeName((e.parameter.fileName || "MK360_video.webm"));
+    const eventName = sanitizeName((e.parameter.eventName || "Evento"));
+    const contentType = e.parameter.contentType || "application/octet-stream";
+    const finalName = eventName + "_" + now + "_" + fileName;
     const blob = Utilities.newBlob(e.postData.contents, contentType, finalName);
     const file = folder.createFile(blob);
-
-    return jsonOut({
+    var shareWarning2 = null;
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr2) {
+      shareWarning2 = String(shareErr2);
+    }
+    var fid2 = file.getId();
+    var out2 = {
       ok: true,
-      fileId: file.getId(),
+      fileId: fid2,
       fileName: file.getName(),
-      fileUrl: file.getUrl()
-    });
+      fileUrl: file.getUrl(),
+      viewUrl: "https://drive.google.com/file/d/" + fid2 + "/view?usp=sharing"
+    };
+    if (shareWarning2) out2.sharingWarning = shareWarning2;
+    return jsonOut(out2);
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
   }

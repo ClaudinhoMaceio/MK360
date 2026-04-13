@@ -470,6 +470,16 @@
         </div>
 
         <div class="space-y-1">
+                    <label class="block field-label">Campo de visão (tipo iPhone)</label>
+                    <select id="cameraZoomSelect" class="effect-select" title="0,5× mais aberto; 2× mais aproximado">
+                        <option value="0.5">0,5× — mais distante / aberto</option>
+                        <option value="1" selected>1× — normal</option>
+                        <option value="2">2× — mais próximo</option>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1">Em alguns telemóveis (sobretudo Android com Chrome) o zoom real da câmera é usado; no iPhone/Safari costuma ser simulação no ecrã e no vídeo (corte central / barras). Não troca de lente ultra‑larga sozinho.</p>
+        </div>
+
+        <div class="space-y-1">
                     <label class="block field-label text-center mb-2">Duração: <span id="timeLabel" class="text-white text-sm">10</span>s</label>
                     <input type="range" id="durationInput" min="3" max="30" value="10" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer">
         </div>
@@ -480,8 +490,9 @@
                 <input type="file" id="overlayInput" accept="image/png" class="text-[10px] text-slate-400 w-full overflow-hidden">
             </div>
             <div class="space-y-1">
-                        <label class="block field-label">Música (MP3)</label>
+                        <label class="block field-label">Trilha de áudio (MP3)</label>
                         <input type="file" id="musicInput" accept="audio/mpeg,audio/mp3,audio/*" class="text-[10px] text-slate-400 w-full overflow-hidden">
+                        <p class="text-[10px] text-slate-500 leading-snug">Opcional: se escolher um ficheiro, <strong class="text-slate-400">só esse áudio</strong> entra no vídeo. O microfone não é captado.</p>
                     </div>
                 </div>
 
@@ -503,12 +514,31 @@
                     </div>
                 </div>
                 <p id="effectDurationHint" class="text-[11px] text-slate-300 font-bold">Duração final estimada: 10s</p>
+                <div class="space-y-1">
+                    <label class="block field-label">Velocidade do MP4 (FFmpeg)</label>
+                    <select id="exportSpeedSelect" class="effect-select">
+                        <option value="fast" selected>Mais rápido — menos píxeis (576 px de largura)</option>
+                        <option value="normal">Mais qualidade — mais lento (largura total)</option>
+                    </select>
+                </div>
+                <div class="space-y-1 pt-2 border-t border-white/10">
+                    <label class="block field-label">Site estático (GitHub Pages / Hugo)</label>
+                    <label class="block field-label">URL pública do <code class="text-yellow-200/90">server.js</code></label>
+                    <input type="text" id="apiBackendUrlInput" placeholder="https://seu-servidor.com:8080 — vazio = este site" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
+                    <p class="text-[10px] text-slate-400 leading-relaxed">Se o MK360 está noutro domínio (ex.: <code class="text-slate-300">*.github.io</code>), coloque aqui o endereço onde o Node está na Internet (HTTPS de preferência). Esse host responde a <code class="text-slate-300">/api/upload</code> e <code class="text-slate-300">/api/drive-upload</code> com CORS.</p>
+                    <label class="block field-label">Origem do link (QR, WhatsApp, Web, AirDrop)</label>
+                    <select id="shareModeSelect" class="effect-select">
+                        <option value="auto">Automático: servidor; se falhar → Google Drive</option>
+                        <option value="server">Só servidor de ficheiros</option>
+                        <option value="drive">Só Google Drive (recomendado sem /upload)</option>
+                    </select>
+                </div>
                 <div class="space-y-1 pt-2 border-t border-white/10">
                     <label class="block field-label">Google Drive — envio automático</label>
                     <p class="text-[10px] text-slate-400 mb-2 leading-relaxed">Após cada vídeo finalizado, o ficheiro é enviado <strong class="text-slate-300">automaticamente</strong> para a pasta <a href="https://drive.google.com/drive/folders/1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq?usp=sharing" target="_blank" rel="noopener noreferrer" class="text-cyan-400 underline font-bold">MK360 no Drive</a> (configurada no <code class="text-yellow-200/90">google-apps-script-drive.gs</code>).</p>
                     <label class="block field-label">URL do Web App (Apps Script)</label>
                     <input type="text" id="driveWebhookInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
-                    <p class="text-[10px] text-slate-400">Cole a URL <code class="text-slate-300">/exec</code> da implementação e salve. Sem isto o envio ao Drive não corre.</p>
+                    <p class="text-[10px] text-slate-400">Cole a URL <code class="text-slate-300">/exec</code> e salve. O envio usa o proxy <code class="text-slate-300">/api/drive-upload</code> no <strong class="text-slate-300">URL do servidor Node</strong> acima (local ou público). Em site estático, esse URL <strong class="text-slate-300">tem de ser o mesmo</strong> domínio onde corre o <code class="text-slate-300">server.js</code>. O script no Drive define o ficheiro como “quem tem o link” para o QR abrir sem login. Copie alterações do <code class="text-slate-300">google-apps-script-drive.gs</code> para o Apps Script e publique uma <strong class="text-slate-300">nova versão</strong>.</p>
                     <div class="grid grid-cols-2 gap-2 pt-2">
                         <button id="saveDriveBtn" class="btn-ghost">Salvar Drive</button>
                         <button id="testDriveBtn" class="btn-ghost">Testar Conexão</button>
@@ -628,14 +658,17 @@
             return u.href;
         }
 
-        // FFmpeg pode falhar em ambientes sem isolamento COOP/COEP.
-        // Mantemos a instância para tentar processamento avançado quando disponível.
+        // FFmpeg precisa de core.js + .wasm + .worker.js na pasta vendor (mesma origem que COEP).
+        const _mkBase = mk360PageDirectoryBase();
         const ffmpeg = createFFmpeg({
             log: true,
-            corePath: new URL('vendor/ffmpeg-core.js', mk360PageDirectoryBase()).href
+            corePath: new URL('vendor/ffmpeg-core.js', _mkBase).href,
+            wasmPath: new URL('vendor/ffmpeg-core.wasm', _mkBase).href,
+            workerPath: new URL('vendor/ffmpeg-core.worker.js', _mkBase).href
         });
         
         let stream, recorder, chunks = [];
+        let hardwareZoomActive = false;
         let overlayImg = null;
         let musicFile = null;
         let recordingAudioContext = null;
@@ -669,6 +702,8 @@
         const saveDriveBtn = document.getElementById('saveDriveBtn');
         const testDriveBtn = document.getElementById('testDriveBtn');
         const driveConnectStatus = document.getElementById('driveConnectStatus');
+        const cameraZoomSelect = document.getElementById('cameraZoomSelect');
+        const exportSpeedSelect = document.getElementById('exportSpeedSelect');
         const installBtn = document.getElementById('installBtn');
         const finalizeEventBtn = document.getElementById('finalizeEventBtn');
         const nextVideoBtn = document.getElementById('nextVideoBtn');
@@ -720,6 +755,10 @@
         const processingDetail = document.getElementById('processingDetail');
         const PARTY_NAME_KEY = 'mk360_party_name';
         const CAMERA_FACING_KEY = 'mk360_camera_facing';
+        const API_BACKEND_KEY = 'mk360_api_backend_url';
+        const SHARE_MODE_KEY = 'mk360_share_mode';
+        const EXPORT_SPEED_KEY = 'mk360_export_speed';
+        const CAMERA_ZOOM_KEY = 'mk360_camera_zoom';
 
         function getSelectedFacingMode() {
             const v = cameraFacingSelect ? cameraFacingSelect.value : 'user';
@@ -864,10 +903,39 @@
                 renderDriveStatus(false, 'Abra em http://localhost:8080 para testar.');
                 return false;
             }
-            const useJsonpFirst = location.hostname && location.hostname.endsWith('github.io');
             try {
                 testDriveBtn.disabled = true;
                 testDriveBtn.innerText = 'Testando...';
+
+                /** 1) Ping pelo servidor Node (evita CORS e JSONP que muitas vezes falha no browser). */
+                const pingProxyUrl = new URL(
+                    '/api/drive-ping?webhook=' + encodeURIComponent(webhook),
+                    resolveApiOrigin()
+                ).href;
+                try {
+                    const response = await fetch(pingProxyUrl, { method: 'GET', cache: 'no-store' });
+                    const text = await response.text();
+                    let data = null;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (_) {}
+                    if (response.status !== 404 && data) {
+                        if (response.ok && data.ok === true) {
+                            renderDriveStatus(true, 'Drive conectado com sucesso.');
+                            return true;
+                        }
+                        if (data.error) {
+                            throw new Error(String(data.error));
+                        }
+                    }
+                } catch (proxyErr) {
+                    if (proxyErr && proxyErr.message && !String(proxyErr.message).includes('Failed to fetch')) {
+                        throw proxyErr;
+                    }
+                }
+
+                /** 2) Legado: GitHub Pages costuma precisar de JSONP; localhost tenta fetch direto depois JSONP. */
+                const useJsonpFirst = location.hostname && location.hostname.endsWith('github.io');
                 if (useJsonpFirst) {
                     const data = await pingDriveJsonp(webhook);
                     if (!data || !data.ok) throw new Error((data && data.error) || 'Ping inválido');
@@ -880,8 +948,17 @@
                         const data = await response.json();
                         if (!data.ok) throw new Error(data.error || 'Resposta inválida');
                     } catch (fetchErr) {
-                        const data = await pingDriveJsonp(webhook);
-                        if (!data || !data.ok) throw new Error((data && data.error) || fetchErr.message || 'Ping inválido');
+                        try {
+                            const data = await pingDriveJsonp(webhook);
+                            if (!data || !data.ok) {
+                                throw new Error((data && data.error) || fetchErr.message || 'Ping inválido');
+                            }
+                        } catch (jsonpErr) {
+                            throw new Error(
+                                'Confirme: node server.js a correr e URL do servidor Node em Configurações se não for este site. ' +
+                                    (jsonpErr.message || 'JSONP falhou')
+                            );
+                        }
                     }
                 }
                 renderDriveStatus(true, 'Drive conectado com sucesso.');
@@ -925,6 +1002,40 @@
             }
             driveWebhookInput.value = w || DEFAULT_DRIVE_WEBHOOK;
         })();
+        const apiBackendUrlInput = document.getElementById('apiBackendUrlInput');
+        const shareModeSelect = document.getElementById('shareModeSelect');
+        if (apiBackendUrlInput) {
+            apiBackendUrlInput.value = localStorage.getItem(API_BACKEND_KEY) || '';
+            apiBackendUrlInput.addEventListener('change', () => {
+                localStorage.setItem(API_BACKEND_KEY, apiBackendUrlInput.value.trim());
+                showNotice('URL do servidor Node salva.');
+            });
+        }
+        if (shareModeSelect) {
+            const sm = localStorage.getItem(SHARE_MODE_KEY) || 'auto';
+            shareModeSelect.value = ['auto', 'server', 'drive'].includes(sm) ? sm : 'auto';
+            shareModeSelect.addEventListener('change', () => {
+                localStorage.setItem(SHARE_MODE_KEY, shareModeSelect.value);
+                showNotice('Modo de partilha salvo.');
+            });
+        }
+        if (cameraZoomSelect) {
+            const z = localStorage.getItem(CAMERA_ZOOM_KEY) || '1';
+            cameraZoomSelect.value = ['0.5', '1', '2'].includes(z) ? z : '1';
+            cameraZoomSelect.addEventListener('change', async () => {
+                localStorage.setItem(CAMERA_ZOOM_KEY, cameraZoomSelect.value);
+                await syncCameraZoom();
+                showNotice(hardwareZoomActive ? 'Zoom da câmera aplicado (quando suportado).' : 'Campo de visão atualizado (simulação no ecrã).');
+            });
+        }
+        if (exportSpeedSelect) {
+            const ex = localStorage.getItem(EXPORT_SPEED_KEY) || 'fast';
+            exportSpeedSelect.value = ex === 'normal' ? 'normal' : 'fast';
+            exportSpeedSelect.addEventListener('change', () => {
+                localStorage.setItem(EXPORT_SPEED_KEY, exportSpeedSelect.value);
+                showNotice('Velocidade de exportação MP4 salva.');
+            });
+        }
         driveWebhookInput.onchange = () => {
             localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
             showNotice("Webhook Google Drive salvo.");
@@ -1050,26 +1161,26 @@
         async function buildRecordingAudioTracks() {
             if (!stream) return [];
             cleanupRecordingAudio();
+            if (!musicFile) return [];
+
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (!AudioCtx) return [...stream.getAudioTracks()];
+            if (!AudioCtx) {
+                showNotice("Este navegador não expõe AudioContext; não é possível gravar o MP3. Use Chrome ou Edge atualizado.");
+                return [];
+            }
 
             recordingAudioContext = new AudioCtx();
             const destination = recordingAudioContext.createMediaStreamDestination();
-            const micSource = recordingAudioContext.createMediaStreamSource(stream);
-            micSource.connect(destination);
-
-            if (musicFile) {
-                recordingMusicObjectUrl = URL.createObjectURL(musicFile);
-                recordingMusicElement = new Audio(recordingMusicObjectUrl);
-                recordingMusicElement.loop = true;
-                recordingMusicElement.volume = 0.9;
-                const musicSource = recordingAudioContext.createMediaElementSource(recordingMusicElement);
-                musicSource.connect(destination);
-                await recordingAudioContext.resume();
-                await recordingMusicElement.play().catch(() => {
-                    showNotice("Não foi possível tocar a música automaticamente. Toque na tela e tente novamente.");
-                });
-            }
+            recordingMusicObjectUrl = URL.createObjectURL(musicFile);
+            recordingMusicElement = new Audio(recordingMusicObjectUrl);
+            recordingMusicElement.loop = true;
+            recordingMusicElement.volume = 0.9;
+            const musicSource = recordingAudioContext.createMediaElementSource(recordingMusicElement);
+            musicSource.connect(destination);
+            await recordingAudioContext.resume();
+            await recordingMusicElement.play().catch(() => {
+                showNotice("Não foi possível tocar a música automaticamente. Toque na tela e tente gravar de novo.");
+            });
 
             return destination.stream.getAudioTracks();
         }
@@ -1077,7 +1188,7 @@
         async function initCamera() {
             try {
                 if (!isSecureEnvironment()) {
-                    showError("Este sistema precisa de HTTPS (ou localhost) para acessar a câmara/microfone.");
+                    showError("Este sistema precisa de HTTPS (ou localhost) para acessar a câmara.");
                     return;
                 }
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -1093,11 +1204,11 @@
                         height: { ideal: 720 },
                         frameRate: { ideal: 60 }
                     },
-                    audio: true
+                    audio: false
                 };
                 const cameraFallback = {
                     video: { facingMode: { ideal: facing } },
-                    audio: true
+                    audio: false
                 };
                 try {
                     stream = await navigator.mediaDevices.getUserMedia(cameraPrimary);
@@ -1107,6 +1218,7 @@
                 video.srcObject = stream;
                 video.setAttribute('playsinline', '');
                 video.play();
+                await syncCameraZoom();
                 video.onloadedmetadata = () => {
                     canvas.width = 720; canvas.height = 1280;
                     drawPreview();
@@ -1119,9 +1231,75 @@
             }
         }
 
+        function getCameraZoomFactor() {
+            const v = cameraZoomSelect ? cameraZoomSelect.value : '1';
+            const n = Number(v);
+            if (n === 0.5 || n === 2) return n;
+            return 1;
+        }
+
+        /** Quando o browser expõe `zoom` no track (ex.: alguns Android), usa a câmera real; senão simula no canvas. */
+        async function syncCameraZoom() {
+            hardwareZoomActive = false;
+            if (!stream) return;
+            const track = stream.getVideoTracks()[0];
+            if (!track || typeof track.getCapabilities !== 'function') return;
+            const caps = track.getCapabilities();
+            if (!caps || caps.zoom == null) return;
+            const min = caps.zoom.min;
+            const max = caps.zoom.max;
+            if (!(max > min)) return;
+            const zf = getCameraZoomFactor();
+            let target;
+            if (zf <= 0.75) target = min;
+            else if (zf >= 1.75) target = max;
+            else target = Math.min(max, Math.max(min, 1));
+            try {
+                await track.applyConstraints({ advanced: [{ zoom: target }] });
+                hardwareZoomActive = true;
+            } catch (_) {
+                hardwareZoomActive = false;
+            }
+        }
+
+        /** 0,5× = mais “aberto” (barras); 2× = recorte central (mais próximo). */
+        function drawVideoWithZoomOntoCanvas() {
+            const cw = canvas.width;
+            const ch = canvas.height;
+            const z = getCameraZoomFactor();
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, cw, ch);
+            if (!vw || !vh) {
+                ctx.drawImage(video, 0, 0, cw, ch);
+                return;
+            }
+            if (hardwareZoomActive) {
+                ctx.drawImage(video, 0, 0, vw, vh, 0, 0, cw, ch);
+                return;
+            }
+            if (z >= 1.75) {
+                const sw = vw * 0.5;
+                const sh = vh * 0.5;
+                const sx = (vw - sw) * 0.5;
+                const sy = (vh - sh) * 0.5;
+                ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+            } else if (z <= 0.75) {
+                const rel = 0.72;
+                const dw = cw * rel;
+                const dh = ch * rel;
+                const dx = (cw - dw) * 0.5;
+                const dy = (ch - dh) * 0.5;
+                ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh);
+            } else {
+                ctx.drawImage(video, 0, 0, vw, vh, 0, 0, cw, ch);
+            }
+        }
+
         function drawPreview() {
             if (!document.hidden || isRecording) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                drawVideoWithZoomOntoCanvas();
                 if (overlayImg) ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height);
                 else {
                     ctx.strokeStyle = "rgba(234, 179, 8, 0.15)";
@@ -1488,35 +1666,86 @@
             db.close();
         }
 
+        function resolveApiOrigin() {
+            try {
+                const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+                if (!raw) return window.location.origin;
+                const u = new URL(raw.replace(/\/$/, ''));
+                return u.origin;
+            } catch (_) {
+                return window.location.origin;
+            }
+        }
+
+        function drivePublicViewUrl(payload) {
+            if (!payload) return '';
+            if (payload.viewUrl) return String(payload.viewUrl);
+            if (payload.fileId) return 'https://drive.google.com/file/d/' + payload.fileId + '/view?usp=sharing';
+            return String(payload.fileUrl || '');
+        }
+
+        /** Base64 estável para o Apps Script (POST binário cru costuma chegar vazio). */
+        function blobToBase64ForDrive(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const s = String(reader.result || '');
+                    const i = s.indexOf(',');
+                    resolve(i >= 0 ? s.slice(i + 1) : s);
+                };
+                reader.onerror = () => reject(reader.error || new Error('Falha ao ler o vídeo para o Drive'));
+                reader.readAsDataURL(blob);
+            });
+        }
+
         async function sendToGoogleDrive(blob, fileName) {
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
-            if (location.hostname && location.hostname.endsWith("github.io")) {
-                return {
-                    skipped: true,
-                    queueForLater: true,
-                    reason: "GitHub Pages bloqueia POST ao Drive (CORS). Abra o site pelo node server.js no PC para enviar."
-                };
+            const dataBase64 = await blobToBase64ForDrive(blob);
+            const inner = {
+                action: 'upload',
+                fileName,
+                eventName: partyNameInput.value.trim(),
+                contentType: blob.type || 'application/octet-stream',
+                dataBase64
+            };
+            const innerJson = JSON.stringify(inner);
+            const apiOrigin = resolveApiOrigin();
+            const proxyUrl = new URL('/api/drive-upload', apiOrigin).href;
+            let response = null;
+            try {
+                response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ webhook, ...inner })
+                });
+            } catch (_) {
+                response = null;
             }
-            const uploadUrl = new URL(webhook);
-            uploadUrl.searchParams.set('action', 'upload');
-            uploadUrl.searchParams.set('fileName', fileName);
-            uploadUrl.searchParams.set('eventName', partyNameInput.value.trim());
-            uploadUrl.searchParams.set('contentType', blob.type || 'application/octet-stream');
-
-            const response = await fetch(uploadUrl.toString(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/octet-stream' },
-                body: blob
-            });
+            if (!response || response.status === 404) {
+                try {
+                    response = await fetch(new URL(webhook).toString(), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: innerJson
+                    });
+                } catch (e) {
+                    throw new Error('Configure em Configurações a URL pública do servidor Node (proxy /api/drive-upload) ou verifique o webhook.');
+                }
+            }
             if (!response.ok) {
-                throw new Error(`Falha no envio ao Drive (${response.status})`);
+                const errText = await response.text().catch(() => '');
+                throw new Error(errText || `Falha no envio ao Drive (${response.status})`);
             }
             let payload = {};
             try {
                 payload = await response.json();
             } catch (_) {}
+            if (!payload || payload.ok !== true) {
+                const errMsg = (payload && payload.error) ? String(payload.error) : 'Resposta inválida do Drive';
+                throw new Error(errMsg);
+            }
             return { skipped: false, payload };
         }
 
@@ -1544,7 +1773,7 @@
             if (!isHttpContext) {
                 throw new Error("Upload via QR indisponível em file://. Abra em http://localhost:8080");
             }
-            const uploadEndpoint = new URL(`/api/upload?ext=${encodeURIComponent(extension)}`, window.location.origin);
+            const uploadEndpoint = new URL(`/api/upload?ext=${encodeURIComponent(extension)}`, resolveApiOrigin());
             const response = await fetch(uploadEndpoint.href, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
@@ -1574,7 +1803,9 @@
                     mapVideo = "[v2]";
                 }
                 if (recordedHasAudio) {
-                    filterComplex += ";[0:a]asplit[af][ar];[ar]areverse[ra];[af][ra]concat=n=2:v=0:a=1[a]";
+                    // areverse em WebM/Opus costuma falhar no ffmpeg.wasm — duplicar o áudio (ida+ida)
+                    // alinha a duração com o vídeo ida+volta sem depender de areverse.
+                    filterComplex += ";[0:a]asplit[af][ar];[af][ar]concat=n=2:v=0:a=1[a]";
                     mapAudio = "[a]";
                     if (shouldSlow) {
                         filterComplex += ";[a]atempo=0.5[a2]";
@@ -1603,66 +1834,100 @@
                 const effectEnabled = directionMode !== "normal" || Number(speedValue) !== 1;
                 const canUseAdvancedEffects = isHttpContext;
 
-                // Sem efeitos, modo rápido sem FFmpeg.
-                if (!effectEnabled || !canUseAdvancedEffects) {
-                    const localUrl = URL.createObjectURL(blob);
-                    if (effectEnabled && !canUseAdvancedEffects) {
-                        showNotice("Efeitos avançados exigem servidor HTTP/HTTPS. Vídeo gerado sem efeito.");
-                    }
-                    showResult(localUrl, "VÍDEO PRONTO! GERANDO QR...", blob, 'webm');
-                    return;
+                if (!canUseAdvancedEffects) {
+                    throw new Error("Este sistema só entrega vídeos em MP4. Abra pelo servidor em http://localhost:8080 para converter e compartilhar.");
                 }
 
                 try {
                     processingDetail.classList.remove('hidden');
                     processingDetail.textContent = 'Carregando motor de vídeo (a primeira vez pode levar um minuto)...';
                     if (!ffmpeg.isLoaded()) await ffmpeg.load();
-                    processingDetail.textContent = 'Aplicando efeitos ao vídeo...';
+                    processingDetail.textContent = effectEnabled
+                        ? 'Aplicando efeitos e convertendo para MP4...'
+                        : 'Convertendo vídeo final para MP4...';
                     ffmpeg.FS('writeFile', 'vid.webm', await fetchFile(blob));
-                    const { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio } = buildFilterByEffect(directionMode, speedValue);
+                    let { videoFilter, audioFilter, filterComplex, mapVideo, mapAudio } = buildFilterByEffect(directionMode, speedValue);
+                    const fastExport = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
+                    if (fastExport) {
+                        const tag = String(mapVideo || '').trim();
+                        if (filterComplex && tag) {
+                            filterComplex += ';' + tag + 'scale=576:-2:flags=fast_bilinear[vzfast]';
+                            mapVideo = '[vzfast]';
+                        } else if (videoFilter) {
+                            videoFilter += ',scale=576:-2:flags=fast_bilinear';
+                        } else {
+                            videoFilter = 'scale=576:-2:flags=fast_bilinear';
+                        }
+                    }
                     const command = ['-i', 'vid.webm'];
                     if (filterComplex) {
                         command.push('-filter_complex', filterComplex, '-map', mapVideo);
                         if (mapAudio) command.push('-map', mapAudio);
-                } else {
+                    } else {
                         if (videoFilter) command.push('-vf', videoFilter);
                         if (audioFilter) command.push('-af', audioFilter);
                         command.push('-map', '0:v');
                         if (recordedHasAudio) command.push('-map', '0:a?');
                     }
 
-                    command.push('-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart');
-                    if (recordedHasAudio) command.push('-c:a', 'aac', '-b:a', '192k');
+                    command.push(
+                        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode',
+                        '-crf', fastExport ? '30' : '24',
+                        '-movflags', '+faststart'
+                    );
+                    if (mapAudio || (!filterComplex && recordedHasAudio)) {
+                        command.push('-c:a', 'aac', '-b:a', fastExport ? '128k' : '192k');
+                    }
                     command.push('final.mp4');
 
                     try {
-                await ffmpeg.run(...command);
+                        await ffmpeg.run(...command);
                     } catch (primaryRunError) {
-                        // Fallback: reverso simples (sem concat) se filter_complex falhar (ex.: VP9/WebM).
                         if (directionMode === "reverse" || directionMode === "boomerang") {
-                            const reverseOnlyCommand = ['-i', 'vid.webm', '-vf', 'reverse', '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-movflags', '+faststart', 'final.mp4'];
-                            if (Number(speedValue) < 1) {
-                                reverseOnlyCommand.splice(3, 2, '-vf', 'reverse,setpts=2.0*PTS');
+                            const slow = Number(speedValue) > 0 && Number(speedValue) < 1;
+                            const fe = (localStorage.getItem(EXPORT_SPEED_KEY) || 'fast') !== 'normal';
+                            let vOnly = '[0:v]split[vf][vr];[vr]reverse[rv];[vf][vr]concat=n=2:v=1:a=0[v]';
+                            if (slow) vOnly += ';[v]setpts=2.0*PTS[v2]';
+                            let mapV = slow ? '[v2]' : '[v]';
+                            if (fe) {
+                                vOnly += ';' + mapV + 'scale=576:-2:flags=fast_bilinear[vzf]';
+                                mapV = '[vzf]';
                             }
-                            await ffmpeg.run(...reverseOnlyCommand);
-                            showNotice(directionMode === "boomerang"
-                                ? "Boomerang: aplicado reverso simples (modo compatível, sem áudio)."
-                                : "Reverso aplicado em modo compatível (sem áudio) para garantir o efeito.");
+                            try {
+                                await ffmpeg.run(
+                                    '-i', 'vid.webm',
+                                    '-filter_complex', vOnly,
+                                    '-map', mapV,
+                                    '-an',
+                                    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart',
+                                    'final.mp4'
+                                );
+                                showNotice('Efeito ida e volta aplicado (vídeo apenas — áudio omitido neste modo compatível).');
+                            } catch (videoOnlyErr) {
+                                const vfRev = fe ? 'reverse,scale=576:-2:flags=fast_bilinear' : 'reverse';
+                                const reverseOnlyCommand = ['-i', 'vid.webm', '-vf', vfRev, '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', fe ? '30' : '24', '-movflags', '+faststart', 'final.mp4'];
+                                if (slow) {
+                                    reverseOnlyCommand.splice(3, 2, '-vf', fe ? 'reverse,setpts=2.0*PTS,scale=576:-2:flags=fast_bilinear' : 'reverse,setpts=2.0*PTS');
+                                }
+                                await ffmpeg.run(...reverseOnlyCommand);
+                                showNotice('Aviso: só foi possível o reverso simples (sem ida+volta completo). Confirme que abre pelo servidor com COOP/COEP (localhost:8080).');
+                                console.warn('FFmpeg fallback cadeia:', primaryRunError, videoOnlyErr);
+                            }
                         } else {
                             throw primaryRunError;
                         }
                     }
-                const output = ffmpeg.FS('readFile', 'final.mp4');
-                const finalBlob = new Blob([output.buffer], { type: 'video/mp4' });
+                    const output = ffmpeg.FS('readFile', 'final.mp4');
+                    const finalBlob = new Blob([output.buffer], { type: 'video/mp4' });
                     const localUrl = URL.createObjectURL(finalBlob);
                     showResult(localUrl, "VÍDEO PRONTO! GERANDO QR...", finalBlob, 'mp4');
                 } catch (ffmpegError) {
-                    // Se houver efeito selecionado, não entrega vídeo sem efeito.
-                    // Fallback: mantém o sistema operacional mesmo sem isolamento completo.
-                    const fallbackUrl = URL.createObjectURL(blob);
-                    showResult(fallbackUrl, "VÍDEO PRONTO (FALLBACK)! GERANDO QR...", blob, 'webm');
-                    showNotice("Processamento avançado indisponível neste ambiente. Vídeo gerado em modo compatível.");
-                    console.warn("FFmpeg fallback:", ffmpegError);
+                    console.warn("FFmpeg falhou ao gerar MP4:", ffmpegError);
+                    throw new Error(
+                        "Não foi possível gerar o MP4. Confirme: (1) abriu em http://localhost:8080 com node server.js; " +
+                        "(2) existem vendor/ffmpeg-core.wasm e vendor/ffmpeg-core.worker.js na pasta do projeto. " +
+                        "Detalhe: " + (ffmpegError && ffmpegError.message ? ffmpegError.message : "")
+                    );
                 }
             } catch (err) {
                 console.error(err);
@@ -1741,6 +2006,7 @@
                 shareWebBtn.classList.remove('hidden');
             };
             let shareUrlForHistory = null;
+            let videoAlreadyOnDriveForSharing = false;
             if (!blobForUpload) {
                 qrMessage.innerText = "Vídeo pronto para baixar neste aparelho.";
                 const localFileName = getSafeFileName(extension);
@@ -1761,29 +2027,75 @@
                 openInBrowserBtn.classList.remove('hidden');
                 setupShareActions(url);
             } else {
+                const finalNameEarly = getSafeFileName(extension);
+                directDownloadBtn.href = url;
+                directDownloadBtn.setAttribute('download', finalNameEarly);
+                directDownloadBtn.classList.remove('hidden');
+                openInBrowserBtn.href = url;
+                openInBrowserBtn.classList.remove('hidden');
+                qrMessage.innerText = 'Pode já guardar o vídeo neste aparelho. A preparar o link público para o QR…';
                 try {
-                    const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
-                    const downloadUrl = uploadInfo.downloadUrl;
-                    shareUrlForHistory = downloadUrl;
-                    const fileName = getSafeFileName(extension);
+                    const finalName = getSafeFileName(extension);
+                    const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
+                    const webhookConfigured = (driveWebhookInput.value || '').trim();
+                    let shareUrl = null;
 
-                    const qrOpts = { text: downloadUrl, width: 180, height: 180 };
-                    if (typeof QRCode !== 'undefined' && QRCode.CorrectLevel) {
-                        qrOpts.correctLevel = QRCode.CorrectLevel.H;
+                    async function publishLinkViaDrive() {
+                        if (!webhookConfigured) return null;
+                        try {
+                            const dr = await sendToGoogleDrive(blobForUpload, finalName);
+                            if (dr.skipped || !dr.payload) return null;
+                            const u = drivePublicViewUrl(dr.payload);
+                            return u || null;
+                        } catch (e) {
+                            console.warn('Drive (link público):', e);
+                            return null;
+                        }
                     }
-                    new QRCode(qrRoot, qrOpts);
-                    qrMessage.innerText = "Escaneie o QR Code para baixar o vídeo direto no dispositivo.";
-                    directDownloadBtn.href = downloadUrl;
-                    directDownloadBtn.setAttribute('download', fileName);
+
+                    if (mode === 'drive') {
+                        shareUrl = await publishLinkViaDrive();
+                        if (shareUrl) videoAlreadyOnDriveForSharing = true;
+                    } else if (mode === 'server') {
+                        const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
+                        shareUrl = uploadInfo.downloadUrl;
+                    } else {
+                        try {
+                            const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
+                            shareUrl = uploadInfo.downloadUrl;
+                        } catch (e) {
+                            console.warn('Upload servidor (QR):', e);
+                        }
+                        if (!shareUrl && webhookConfigured) {
+                            shareUrl = await publishLinkViaDrive();
+                            if (shareUrl) videoAlreadyOnDriveForSharing = true;
+                        }
+                    }
+
+                    if (!shareUrl) {
+                        throw new Error('Sem link público: configure a URL do servidor Node em site estático, ou o webhook do Drive, ou o modo “Só Google Drive”.');
+                    }
+
+                    shareUrlForHistory = shareUrl;
+                    const qrOpts = { text: shareUrl, width: 152, height: 152 };
+                    if (typeof QRCode !== 'undefined' && QRCode.CorrectLevel) {
+                        qrOpts.correctLevel = QRCode.CorrectLevel.M;
+                    }
+                    requestAnimationFrame(() => { new QRCode(qrRoot, qrOpts); });
+                    qrMessage.innerText = shareUrl.indexOf('drive.google.com') >= 0
+                        ? 'QR aponta para o vídeo no Google Drive (abrir ou transferir no telemóvel).'
+                        : 'Escaneie o QR Code para baixar o vídeo direto no dispositivo.';
+                    directDownloadBtn.href = shareUrl;
+                    directDownloadBtn.setAttribute('download', finalName);
                     directDownloadBtn.classList.remove('hidden');
-                    openInBrowserBtn.href = downloadUrl;
+                    openInBrowserBtn.href = shareUrl;
                     openInBrowserBtn.classList.remove('hidden');
-                    setupShareActions(downloadUrl);
+                    setupShareActions(shareUrl);
                     document.getElementById('resultTitle').innerText = "VÍDEO PUBLICADO COM SUCESSO!";
                 } catch (uploadError) {
-                    console.warn("Upload QR:", uploadError.message || uploadError);
+                    console.warn("Publicar link:", uploadError.message || uploadError);
                     shareUrlForHistory = null;
-                    qrMessage.innerText = "Não foi possível publicar o QR. Use os botões abaixo para baixar ou abrir neste aparelho.";
+                    qrMessage.innerText = "Não foi possível publicar link (QR / WhatsApp / Web). Confirme URL do Node ou Drive em Configurações, ou use baixar neste aparelho.";
                     const localFileName = getSafeFileName(extension);
                     directDownloadBtn.href = url;
                     directDownloadBtn.setAttribute('download', localFileName);
@@ -1799,32 +2111,34 @@
             if (blobForUpload) {
                 const finalFileName = getSafeFileName(extension);
                 try {
-                    if (!navigator.onLine) {
+                    if (videoAlreadyOnDriveForSharing) {
+                        driveStatusMessage.innerText = "Drive: vídeo já está na pasta; o QR e as partilhas usam o link público do mesmo ficheiro.";
+                        driveStatusMessage.classList.remove('hidden');
+                    } else if (!navigator.onLine) {
                         await queueDriveUpload(blobForUpload, finalFileName, extension);
                         driveStatusMessage.innerText = "Drive: sem internet, vídeo salvo na fila para sincronizar automaticamente.";
+                        driveStatusMessage.classList.remove('hidden');
                     } else {
                         const driveResult = await sendToGoogleDrive(blobForUpload, finalFileName);
                         if (driveResult.skipped) {
-                            let msg = `Drive: ${driveResult.reason}`;
-                            if (driveResult.queueForLater) {
-                                try {
-                                    await queueDriveUpload(blobForUpload, finalFileName, extension);
-                                    msg += " Vídeo guardado na fila — ao abrir em http://localhost:8080 o envio corre sozinho.";
-                                } catch (_) {}
+                            driveStatusMessage.innerText = `Drive: ${driveResult.reason}`;
+                        } else {
+                            let msg = "Drive: cópia de arquivo enviada com sucesso!";
+                            if (driveResult.payload && driveResult.payload.sharingWarning) {
+                                msg += " Aviso: " + driveResult.payload.sharingWarning;
                             }
                             driveStatusMessage.innerText = msg;
-                        } else {
-                            driveStatusMessage.innerText = "Drive: vídeo enviado com sucesso!";
                         }
+                        driveStatusMessage.classList.remove('hidden');
                     }
-                    driveStatusMessage.classList.remove('hidden');
                 } catch (driveError) {
                     console.error(driveError);
+                    const errDetail = driveError && driveError.message ? String(driveError.message) : String(driveError);
                     try {
                         await queueDriveUpload(blobForUpload, finalFileName, extension);
-                        driveStatusMessage.innerText = "Drive: envio falhou, vídeo entrou na fila para sincronização automática.";
+                        driveStatusMessage.innerText = "Drive: envio falhou (" + errDetail.slice(0, 180) + "). Vídeo na fila local.";
                     } catch (_) {
-                        driveStatusMessage.innerText = "Drive: falha no envio e na fila local.";
+                        driveStatusMessage.innerText = "Drive: falha no envio e na fila local. " + errDetail.slice(0, 160);
                     }
                     driveStatusMessage.classList.remove('hidden');
                 }
