@@ -38,94 +38,392 @@
     <script src="./vendor/qrcode.min.js"></script>
     <script src="./vendor/ffmpeg.min.js"></script>
     <style>
+        :root {
+            --mk-gold: #eab308;
+            --mk-gold-soft: #facc15;
+            --mk-ink: #020617;
+            --mk-slate: #0f172a;
+            --mk-border: rgba(250, 204, 21, 0.28);
+            --mk-glow: rgba(234, 179, 8, 0.22);
+            --mk-radius: 1.25rem;
+            --mk-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        }
+
         @keyframes pulse {
             0%, 100% { transform: scale(1); opacity: 1; }
             50% { transform: scale(1.1); opacity: 0.8; }
         }
-        .recording-pulse { animation: pulse 1.5s infinite; }
-        #previewCanvas { background: #000; width: 100%; max-width: 500px; border-radius: 1.5rem; border: 1px solid rgba(234,179,8,.22); box-shadow: 0 24px 56px rgba(2,6,23,.55), 0 0 40px rgba(234,179,8,0.2); }
-        .bg-glass { background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.72)); backdrop-filter: blur(12px); }
-        input[type="file"]::file-selector-button {
-            background: #eab308; color: black; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-right: 10px;
+        @keyframes connection-breathe {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.5), 0 0 12px rgba(234, 179, 8, 0.45); }
+            50% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0), 0 0 20px rgba(234, 179, 8, 0.35); }
         }
-        input[type="range"] { accent-color: #eab308; }
-        input[type="text"] { background: rgba(255,255,255,0.05); border: 1px solid rgba(234, 179, 8, 0.3); color: white; }
+
+        .recording-pulse { animation: pulse 1.5s infinite; }
+
         html, body { overscroll-behavior: none; }
-        body { -webkit-tap-highlight-color: transparent; background-image: radial-gradient(circle at top, rgba(234,179,8,.11), transparent 35%), radial-gradient(circle at 20% 80%, rgba(59,130,246,.10), transparent 30%); }
-        button { touch-action: manipulation; }
-        .panel-soft { background: linear-gradient(180deg, rgba(15,23,42,.72), rgba(15,23,42,.48)); border: 1px solid rgba(255,255,255,.08); box-shadow: 0 12px 40px rgba(2,6,23,.5); }
-        .field-label { color: #facc15; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; }
-        .floating-note { background: rgba(30,41,59,.88); border: 1px solid rgba(250,204,21,.25); color: #e2e8f0; font-size: 11px; padding: 10px 12px; border-radius: 12px; }
+
+        .mk360-app {
+            font-family: var(--mk-font);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            -webkit-tap-highlight-color: transparent;
+            min-height: 100dvh;
+            color-scheme: dark;
+            background-color: var(--mk-ink);
+            background-image:
+                radial-gradient(ellipse 130% 90% at 50% -25%, rgba(234, 179, 8, 0.16), transparent 52%),
+                radial-gradient(ellipse 70% 55% at 110% 35%, rgba(59, 130, 246, 0.09), transparent 48%),
+                radial-gradient(ellipse 55% 45% at -10% 85%, rgba(234, 179, 8, 0.07), transparent 50%),
+                linear-gradient(165deg, #020617 0%, #0c1222 38%, #020617 100%);
+        }
+
+        .mk360-app::selection {
+            background: rgba(234, 179, 8, 0.35);
+            color: #fff;
+        }
+
+        .mk360-header {
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.45));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--mk-radius);
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.1rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(14px);
+        }
+
+        .mk360-title {
+            letter-spacing: -0.04em;
+            filter: drop-shadow(0 2px 12px rgba(234, 179, 8, 0.25));
+        }
+
+        #systemStatus {
+            letter-spacing: 0.12em;
+            color: #94a3b8;
+        }
+
+        #connectionDot {
+            animation: connection-breathe 2.8s ease-in-out infinite;
+        }
+
+        .mk360-stage {
+            position: relative;
+            padding-bottom: 0.25rem;
+        }
+        .mk360-stage::before {
+            content: "";
+            position: absolute;
+            inset: -8px -12px 4px;
+            border-radius: 1.75rem;
+            background: radial-gradient(ellipse 70% 60% at 50% 30%, rgba(234, 179, 8, 0.12), transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        #previewCanvas {
+            background: #030712;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 1.5rem;
+            border: 1px solid rgba(234, 179, 8, 0.28);
+            box-shadow:
+                0 28px 64px rgba(2, 6, 23, 0.65),
+                0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+                0 0 48px rgba(234, 179, 8, 0.14);
+        }
+
+        #countdown {
+            text-shadow: 0 0 72px rgba(234, 179, 8, 0.55), 0 8px 32px rgba(0, 0, 0, 0.85);
+        }
+
+        .bg-glass {
+            background: linear-gradient(155deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.78));
+            backdrop-filter: blur(16px);
+            box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        input[type="file"]::file-selector-button {
+            background: linear-gradient(180deg, #facc15, #ca8a04);
+            color: #0f172a;
+            border: none;
+            padding: 9px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 800;
+            margin-right: 10px;
+            box-shadow: 0 2px 8px rgba(234, 179, 8, 0.25);
+            transition: filter 0.2s ease, transform 0.15s ease;
+        }
+        input[type="file"]::file-selector-button:hover {
+            filter: brightness(1.08);
+        }
+
+        input[type="range"] { accent-color: var(--mk-gold); height: 0.5rem; }
+        input[type="text"] {
+            background: rgba(2, 6, 23, 0.55);
+            border: 1px solid rgba(234, 179, 8, 0.28);
+            color: #f8fafc;
+            border-radius: 0.875rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: rgba(250, 204, 21, 0.65);
+            box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.2);
+        }
+
+        button, .btn-soft, a.btn-soft {
+            touch-action: manipulation;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+        }
+
+        .panel-soft {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0.52));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 16px 48px rgba(2, 6, 23, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .field-label {
+            color: #fde047;
+            font-size: 10px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+        }
+
+        .floating-note {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.88));
+            border: 1px solid rgba(250, 204, 21, 0.32);
+            color: #e2e8f0;
+            font-size: 11px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+        }
+
+        #installBtn {
+            display: none;
+            width: 100%;
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.9));
+            border: 1px solid rgba(234, 179, 8, 0.38);
+            color: #f8fafc;
+            font-weight: 900;
+            padding: 14px;
+            border-radius: 14px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.1em;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        #installBtn:hover {
+            border-color: rgba(253, 224, 71, 0.55);
+            color: #fef9c3;
+        }
+
+        .btn-soft {
+            width: 100%;
+            background: linear-gradient(180deg, #fde047, #eab308);
+            color: #0f172a;
+            font-weight: 900;
+            padding: 14px;
+            border-radius: 14px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-align: center;
+            display: inline-block;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 6px 20px rgba(234, 179, 8, 0.35);
+        }
+        .btn-soft:hover {
+            filter: brightness(1.05);
+            box-shadow: 0 8px 28px rgba(234, 179, 8, 0.45);
+            transform: translateY(-1px);
+        }
+
+        .result-card {
+            border: 1px solid rgba(250, 204, 21, 0.3);
+            background: linear-gradient(185deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.96));
+            box-shadow: 0 20px 44px rgba(2, 6, 23, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+
+        .tab-shell {
+            border: 1px solid var(--mk-border);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        }
+        .tab-header {
+            width: 100%;
+            background: linear-gradient(90deg, rgba(250, 204, 21, 0.22), rgba(234, 179, 8, 0.1), rgba(59, 130, 246, 0.08));
+            color: #fef9c3;
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            font-weight: 900;
+            text-transform: uppercase;
+            padding: 14px 16px;
+            text-align: left;
+            border: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .tab-body {
+            padding: 16px;
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.55));
+        }
+
+        .effect-card {
+            background: rgba(2, 6, 23, 0.45);
+            border: 1px solid rgba(250, 204, 21, 0.22);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .effect-select {
+            width: 100%;
+            background: rgba(2, 6, 23, 0.65);
+            border: 1px solid rgba(250, 204, 21, 0.38);
+            color: #f8fafc;
+            border-radius: 12px;
+            padding: 10px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .effect-select:focus {
+            outline: none;
+            border-color: rgba(253, 224, 71, 0.65);
+            box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.18);
+        }
+
+        .btn-ghost {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(148, 163, 184, 0.38);
+            color: #e2e8f0;
+            font-weight: 800;
+            padding: 12px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+        }
+        .btn-ghost:hover {
+            border-color: rgba(234, 179, 8, 0.45);
+            color: #fef9c3;
+            background: rgba(234, 179, 8, 0.06);
+        }
+
+        #settingsGearBtn {
+            font-size: 1.15rem;
+            line-height: 1;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+        #settingsGearBtn:hover {
+            background: rgba(234, 179, 8, 0.12);
+            border-color: rgba(234, 179, 8, 0.4);
+        }
+
+        .drive-status-ok { color: #6ee7b7; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; }
+        .drive-status-error { color: #fca5a5; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; }
+
+        .history-card {
+            background: linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.62));
+            border: 1px solid rgba(250, 204, 21, 0.22);
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+        .history-btn {
+            font-size: 9px;
+            font-weight: 800;
+            padding: 7px 9px;
+            border-radius: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+            background: rgba(30, 41, 59, 0.65);
+            cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+        .history-btn:hover {
+            border-color: rgba(234, 179, 8, 0.5);
+            color: #fef08a;
+            background: rgba(234, 179, 8, 0.08);
+        }
+
+        #fileModeBanner {
+            border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        }
+
+        .mk360-modal-backdrop {
+            backdrop-filter: blur(8px);
+        }
+        .mk360-modal-dialog {
+            background: linear-gradient(165deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.96));
+            border: 1px solid rgba(248, 113, 113, 0.45);
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+        }
+
+        #nextVideoBtn:hover {
+            background: rgba(30, 41, 59, 0.95) !important;
+            border-color: rgba(234, 179, 8, 0.28) !important;
+            color: #fef9c3 !important;
+        }
+
+        #historyPanel {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(234, 179, 8, 0.45) rgba(15, 23, 42, 0.5);
+        }
+        #historyPanel::-webkit-scrollbar { width: 6px; }
+        #historyPanel::-webkit-scrollbar-thumb {
+            background: rgba(234, 179, 8, 0.4);
+            border-radius: 6px;
+        }
+
+        #recordingUI { pointer-events: none; user-select: none; }
+
+        :focus-visible {
+            outline: 2px solid rgba(253, 224, 71, 0.85);
+            outline-offset: 2px;
+        }
+        input[type="text"]:focus-visible,
+        input[type="range"]:focus-visible,
+        .effect-select:focus-visible,
+        input[type="file"]:focus-visible {
+            outline: none;
+        }
 
         /* Mobile-first refinements */
         @media (max-width: 480px) {
-            body { padding: 10px; }
+            .mk360-app { padding: 10px; }
             #previewCanvas { max-width: 100%; border-radius: 1rem; }
             #startBtn { padding-top: 18px; padding-bottom: 18px; font-size: 1rem; }
             #resultArea .bg-glass { padding: 1rem; border-radius: 1.25rem; }
             #countdown { font-size: 6rem; }
             #recordingUI { bottom: 8px; padding-left: 8px; padding-right: 8px; }
+            .mk360-header { padding: 0.65rem 0.85rem; border-radius: 1rem; }
         }
 
         @media (max-height: 740px) {
-            header { margin-bottom: 8px; }
+            .mk360-header { margin-bottom: 8px; }
             #setupArea { margin-bottom: 10px; padding: 12px; }
             section.w-full.max-w-md.mt-6.space-y-4 { margin-top: 10px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             .recording-pulse { animation: none; }
+            #connectionDot { animation: none; }
+            .btn-soft:hover { transform: none; }
         }
-
-        #installBtn {
-            display: none;
-            width: 100%;
-            background: #0f172a;
-            border: 1px solid rgba(234, 179, 8, 0.3);
-            color: #f8fafc;
-            font-weight: 900;
-            padding: 12px;
-            border-radius: 12px;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: .08em;
-        }
-        .btn-soft {
-            width: 100%;
-            background: linear-gradient(180deg, #facc15, #eab308);
-            color: #111827;
-            font-weight: 900;
-            padding: 14px;
-            border-radius: 14px;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: .08em;
-            text-align: center;
-            display: inline-block;
-        }
-        .result-card {
-            border: 1px solid rgba(250, 204, 21, 0.25);
-            background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.97));
-            box-shadow: 0 16px 36px rgba(2, 6, 23, .28);
-        }
-        .tab-shell { border: 1px solid rgba(250,204,21,.28); border-radius: 18px; overflow: hidden; }
-        .tab-header { width: 100%; background: linear-gradient(180deg, rgba(250,204,21,.18), rgba(234,179,8,.12)); color: #fef08a; font-size: 11px; letter-spacing: .16em; font-weight: 900; text-transform: uppercase; padding: 12px 14px; text-align: left; border: 0; }
-        .tab-body { padding: 14px; background: rgba(15,23,42,.55); }
-        .effect-card { background: rgba(15,23,42,.6); border: 1px solid rgba(250,204,21,.18); border-radius: 12px; padding: 10px; }
-        .effect-select { width: 100%; background: rgba(15,23,42,.8); border: 1px solid rgba(250,204,21,.35); color: #f8fafc; border-radius: 10px; padding: 8px; font-size: 12px; }
-        .btn-ghost { width: 100%; background: transparent; border: 1px solid rgba(148,163,184,.4); color: #cbd5e1; font-weight: 800; padding: 12px; border-radius: 12px; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
-        .drive-status-ok { color: #6ee7b7; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-        .drive-status-error { color: #fca5a5; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-        .history-card { background: linear-gradient(180deg, rgba(15,23,42,.85), rgba(15,23,42,.55)); border: 1px solid rgba(250,204,21,.2); }
-        .history-btn { font-size: 9px; font-weight: 800; padding: 6px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: .06em; border: 1px solid rgba(148,163,184,.35); color: #e2e8f0; background: rgba(30,41,59,.6); }
-        .history-btn:hover { border-color: rgba(234,179,8,.45); color: #fef08a; }
-
-        #recordingUI { pointer-events: none; user-select: none; }
     </style>
 </head>
-<body class="bg-slate-950 text-white min-h-screen flex flex-col items-center p-4">
+<body class="mk360-app text-white min-h-screen flex flex-col items-center p-4">
 
-    <div id="fileModeBanner" class="hidden fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-slate-950 shadow-lg px-3 py-2.5">
+    <div id="fileModeBanner" class="hidden fixed top-0 left-0 right-0 z-[100] bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-slate-950 px-3 py-2.5">
         <div class="max-w-3xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <p class="text-[11px] font-bold leading-snug text-center sm:text-left flex-1">
                 Abriu pelo arquivo (file://). Para <strong>QR</strong>, <strong>efeitos</strong> e melhor câmera: rode <code class="bg-black/15 px-1.5 py-0.5 rounded text-[10px]">node server.js</code> e use <strong>http://localhost:8080</strong> (ou o IP do PC na rede).
@@ -138,9 +436,9 @@
     </div>
 
     <!-- Cabeçalho -->
-    <header class="w-full max-w-md flex justify-between items-center mb-4">
-        <div class="flex flex-col">
-            <h1 class="text-3xl font-black bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent tracking-tighter">MK 360</h1>
+    <header class="mk360-header w-full max-w-md flex justify-between items-center">
+        <div class="flex flex-col gap-0.5">
+            <h1 class="mk360-title text-3xl sm:text-4xl font-black bg-gradient-to-r from-yellow-200 via-yellow-400 to-amber-600 bg-clip-text text-transparent tracking-tighter">MK 360</h1>
             <span id="systemStatus" class="text-xs text-slate-400 font-mono uppercase tracking-widest" role="status" aria-live="polite">Pronto para o Evento</span>
         </div>
         <div class="flex items-center gap-3">
@@ -222,7 +520,7 @@
     </section>
 
     <!-- Visualizador Principal -->
-    <main class="relative w-full max-w-md flex flex-col items-center">
+    <main class="mk360-stage relative w-full max-w-md flex flex-col items-center">
         <canvas id="previewCanvas" aria-hidden="true"></canvas>
         <div id="countdown" class="absolute inset-0 z-30 flex items-center justify-center text-9xl font-black hidden text-yellow-500 drop-shadow-[0_0_30px_rgba(234,179,8,0.8)]">3</div>
         <div id="recordingUI" class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 hidden w-full max-w-[min(100%,280px)] px-2" role="timer" aria-live="polite" aria-atomic="true">
@@ -248,7 +546,7 @@
         <div id="inlineNotice" class="floating-note hidden" role="status" aria-live="polite"></div>
         <div id="effectActiveBadge" class="floating-note hidden"></div>
         <button id="installBtn">Instalar App MK 360</button>
-        <button id="startBtn" class="w-full bg-gradient-to-b from-yellow-400 to-yellow-600 hover:from-yellow-300 hover:to-yellow-500 text-black font-black py-5 rounded-2xl shadow-[0_10px_20px_rgba(234,179,8,0.3)] transition-all active:scale-95 text-xl uppercase tracking-tighter">
+        <button id="startBtn" class="w-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-amber-600 hover:from-yellow-200 hover:via-yellow-300 hover:to-amber-500 text-black font-black py-5 rounded-2xl shadow-[0_12px_40px_rgba(234,179,8,0.35)] border border-yellow-200/40 transition-all active:scale-[0.98] text-lg sm:text-xl uppercase tracking-tight">
             Iniciar MK 360
         </button>
         <button id="finalizeEventBtn" class="btn-ghost">Finalizar Evento</button>
@@ -294,30 +592,47 @@
     </section>
 
     <!-- Ver vídeo do histórico -->
-    <div id="historyViewModal" class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center p-4 hidden z-[60]" role="dialog" aria-modal="true" aria-labelledby="historyViewTitle">
-        <p id="historyViewTitle" class="text-xs font-black text-yellow-400 uppercase tracking-widest mb-3 text-center max-w-md truncate px-2"></p>
-        <video id="historyViewVideo" class="w-full max-w-md max-h-[75vh] rounded-xl border border-yellow-500/25 bg-black" controls playsinline></video>
+    <div id="historyViewModal" class="mk360-modal-backdrop fixed inset-0 bg-slate-950/92 flex flex-col items-center justify-center p-4 hidden z-[60]" role="dialog" aria-modal="true" aria-labelledby="historyViewTitle">
+        <p id="historyViewTitle" class="text-xs font-black text-yellow-300 uppercase tracking-widest mb-3 text-center max-w-md truncate px-2 drop-shadow-sm"></p>
+        <video id="historyViewVideo" class="w-full max-w-md max-h-[75vh] rounded-2xl border border-yellow-500/35 bg-black shadow-[0_24px_64px_rgba(0,0,0,0.65)] ring-1 ring-white/5" controls playsinline></video>
         <button type="button" id="historyViewCloseBtn" class="btn-soft mt-6 max-w-xs">Fechar</button>
     </div>
 
     <!-- Modal de Erro -->
-    <div id="errorModal" class="fixed inset-0 bg-black/95 flex items-center justify-center p-8 hidden z-50" role="dialog" aria-modal="true" aria-labelledby="errorModalTitle">
-        <div class="bg-slate-900 border-2 border-red-600 p-8 rounded-3xl max-w-xs text-center">
-            <div class="text-red-600 text-5xl mb-4">⚠️</div>
-            <h2 id="errorModalTitle" class="text-xl font-black text-white mb-3 uppercase">Erro de Segurança</h2>
-            <p id="errorMessage" class="text-sm text-slate-400 mb-6"></p>
-            <button type="button" id="errorModalCloseBtn" class="w-full bg-red-600 text-white py-3 rounded-xl font-black uppercase">Fechar</button>
+    <div id="errorModal" class="mk360-modal-backdrop fixed inset-0 bg-slate-950/90 flex items-center justify-center p-8 hidden z-50" role="dialog" aria-modal="true" aria-labelledby="errorModalTitle">
+        <div class="mk360-modal-dialog p-8 rounded-3xl max-w-sm w-full text-center">
+            <div class="text-red-500 text-5xl mb-4 drop-shadow-[0_0_24px_rgba(239,68,68,0.45)]">⚠️</div>
+            <h2 id="errorModalTitle" class="text-xl font-black text-white mb-3 uppercase tracking-wide">Erro de Segurança</h2>
+            <p id="errorMessage" class="text-sm text-slate-300 mb-6 leading-relaxed"></p>
+            <button type="button" id="errorModalCloseBtn" class="w-full bg-gradient-to-b from-red-500 to-red-700 hover:from-red-400 hover:to-red-600 text-white py-3.5 rounded-xl font-black uppercase tracking-wider shadow-lg border border-red-400/30">Fechar</button>
         </div>
     </div>
 
     <script>
         const { createFFmpeg, fetchFile } = FFmpeg;
-        
+
+        /** Pasta do app com barra final (corrige /MK360 sem / no GitHub Pages). */
+        function mk360PageDirectoryBase() {
+            if (typeof window.__mk360DirectoryBase === 'string' && window.__mk360DirectoryBase) {
+                return window.__mk360DirectoryBase;
+            }
+            const u = new URL(window.location.href);
+            let p = u.pathname;
+            if (!p.endsWith('/')) {
+                if (/\.[a-z0-9]+$/i.test(p)) p = p.replace(/\/[^/]+$/, '/');
+                else p += '/';
+            }
+            u.pathname = p;
+            u.search = '';
+            u.hash = '';
+            return u.href;
+        }
+
         // FFmpeg pode falhar em ambientes sem isolamento COOP/COEP.
         // Mantemos a instância para tentar processamento avançado quando disponível.
         const ffmpeg = createFFmpeg({
             log: true,
-            corePath: new URL("vendor/ffmpeg-core.js", window.location.href).href
+            corePath: new URL('vendor/ffmpeg-core.js', mk360PageDirectoryBase()).href
         });
         
         let stream, recorder, chunks = [];
@@ -370,23 +685,6 @@
         const driveStatusMessage = document.getElementById('driveStatusMessage');
         const isHttpContext = location.protocol === 'http:' || location.protocol === 'https:';
         const FILE_BANNER_DISMISS_KEY = 'mk360_dismiss_file_banner';
-
-        /** Pasta do app com barra final (corrige /MK360 sem / no GitHub Pages). */
-        function mk360PageDirectoryBase() {
-            if (typeof window.__mk360DirectoryBase === 'string' && window.__mk360DirectoryBase) {
-                return window.__mk360DirectoryBase;
-            }
-            const u = new URL(window.location.href);
-            let p = u.pathname;
-            if (!p.endsWith('/')) {
-                if (/\.[a-z0-9]+$/i.test(p)) p = p.replace(/\/[^/]+$/, '/');
-                else p += '/';
-            }
-            u.pathname = p;
-            u.search = '';
-            u.hash = '';
-            return u.href;
-        }
 
         function hideFileModeBanner() {
             const fb = document.getElementById('fileModeBanner');
