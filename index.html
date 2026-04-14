@@ -270,6 +270,57 @@
             padding: 16px;
             background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.55));
         }
+        .setup-area-shell {
+            border: 1px solid rgba(250, 204, 21, 0.18);
+            box-shadow: 0 20px 60px rgba(2, 6, 23, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+        .setup-pro-card {
+            background: linear-gradient(155deg, rgba(30, 41, 59, 0.75), rgba(15, 23, 42, 0.62));
+            border: 1px solid rgba(250, 204, 21, 0.22);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: 0 10px 30px rgba(2, 6, 23, 0.4);
+        }
+        .status-chip-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .status-chip {
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 10px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            color: #cbd5e1;
+            background: rgba(15, 23, 42, 0.7);
+        }
+        .status-chip.ok {
+            color: #a7f3d0;
+            border-color: rgba(16, 185, 129, 0.45);
+            background: rgba(6, 78, 59, 0.32);
+        }
+        .status-chip.warn {
+            color: #fde68a;
+            border-color: rgba(245, 158, 11, 0.52);
+            background: rgba(120, 53, 15, 0.32);
+        }
+        .tutorial-panel {
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 12px;
+            background: rgba(2, 6, 23, 0.48);
+            padding: 10px 12px;
+        }
+        .tutorial-panel summary {
+            cursor: pointer;
+            color: #fef08a;
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
 
         .effect-card {
             background: rgba(2, 6, 23, 0.45);
@@ -446,15 +497,45 @@
             <button id="settingsGearBtn" class="btn-ghost !w-auto !px-4 !py-2" title="Configurações">⚙️</button>
         </div>
     </header>
+    <p id="deployModeBadge" class="hidden w-full max-w-md text-[10px] text-emerald-300 font-black uppercase tracking-widest bg-emerald-900/20 border border-emerald-500/30 rounded-xl px-3 py-2 mb-3">
+        Modo produção ativo: configurações aplicadas automaticamente.
+    </p>
 
     <!-- Configurações -->
-    <section id="setupArea" class="hidden w-full max-w-md panel-soft p-3 rounded-3xl mb-6">
+    <section id="setupArea" class="hidden w-full max-w-md panel-soft setup-area-shell p-3 rounded-3xl mb-6">
         <div class="tab-shell">
             <div class="tab-header flex items-center justify-between">
                 <span>Configurações do Evento</span>
                 <button id="closeSettingsBtn" class="btn-ghost !w-auto !px-3 !py-1">Fechar</button>
             </div>
             <div id="configBody" class="tab-body space-y-4">
+        <div class="setup-pro-card space-y-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="field-label">Assistente de QR no Smartphone</p>
+                            <p id="qrSetupSummary" class="text-[11px] text-slate-300 leading-relaxed mt-1">Preencha os campos abaixo para habilitar QR, WhatsApp e Web com link público.</p>
+                        </div>
+                        <button id="applyQrPresetBtn" class="btn-ghost !w-auto !px-3 !py-2">Preset QR</button>
+                    </div>
+                    <div class="status-chip-wrap">
+                        <span id="qrChipNode" class="status-chip">Node público</span>
+                        <span id="qrChipWebhook" class="status-chip">Webhook Drive</span>
+                        <span id="qrChipMode" class="status-chip">Modo de partilha</span>
+                        <span id="qrChipReady" class="status-chip">Status final</span>
+                    </div>
+                    <details class="tutorial-panel">
+                        <summary>Tutorial completo rápido (cabine + smartphone)</summary>
+                        <ol class="list-decimal pl-4 mt-2 space-y-1 text-[11px] text-slate-300 leading-relaxed">
+                            <li>Abra `iniciar-mk360-com-tunel.bat` para subir Node + Tunnel.</li>
+                            <li>Copie a URL `https://*.trycloudflare.com` do terminal do Tunnel.</li>
+                            <li>Cole a URL no campo <strong class="text-slate-100">URL pública do server.js</strong>.</li>
+                            <li>Cole o Web App `/exec` no campo <strong class="text-slate-100">URL do Web App (Apps Script)</strong>.</li>
+                            <li>Selecione <strong class="text-slate-100">Automático</strong> para QR com fallback.</li>
+                            <li>Toque em <strong class="text-slate-100">Testar Conexão</strong> e confirme status verde.</li>
+                            <li>No smartphone, abra o site publicado e grave; o QR aparecerá no fim com link compartilhável.</li>
+                        </ol>
+                    </details>
+                </div>
         <div class="space-y-1">
                     <label class="block field-label">Nome do Evento (Pasta/Ficheiro)</label>
             <input type="text" id="partyName" placeholder="Ex: Festa_da_Empresa" class="w-full p-3 rounded-xl focus:outline-none focus:border-yellow-500 transition-all font-bold">
@@ -720,6 +801,12 @@
         const saveDriveBtn = document.getElementById('saveDriveBtn');
         const testDriveBtn = document.getElementById('testDriveBtn');
         const driveConnectStatus = document.getElementById('driveConnectStatus');
+        const applyQrPresetBtn = document.getElementById('applyQrPresetBtn');
+        const qrSetupSummary = document.getElementById('qrSetupSummary');
+        const qrChipNode = document.getElementById('qrChipNode');
+        const qrChipWebhook = document.getElementById('qrChipWebhook');
+        const qrChipMode = document.getElementById('qrChipMode');
+        const qrChipReady = document.getElementById('qrChipReady');
         const uploadFolderPathInput = document.getElementById('uploadFolderPathInput');
         const refreshUploadFolderBtn = document.getElementById('refreshUploadFolderBtn');
         const uploadFolderStatus = document.getElementById('uploadFolderStatus');
@@ -765,6 +852,16 @@
             });
         }
         const DEFAULT_DRIVE_WEBHOOK = 'https://script.google.com/macros/s/AKfycbz_9K0sTxa6W5AsqjMNDLHlIfo1cgfb_Yempygvwx9Te1G068ZwVahLNvLHDUyxszN_/exec';
+        // Preset de produção para uso em smartphone/PWA sem configuração manual do operador.
+        // Importante: preencha backendOrigin com a URL HTTPS fixa do seu Node público.
+        const DEPLOY_PRESET = {
+            enabled: true,
+            lockSettingsForOperator: true,
+            backendOrigin: '',
+            driveWebhook: DEFAULT_DRIVE_WEBHOOK,
+            shareMode: 'auto',
+            cameraFacing: 'environment'
+        };
         /** Webhook antigo (substituído automaticamente na localStorage) */
         const LEGACY_DRIVE_WEBHOOK_ID = 'AKfycbzMWxVo2vHVU3GeW1zfPOhOSk1funU1amVZ57agujQIx02tjJ980EOadw4IGwEcG2e5';
         let deferredInstallPrompt = null;
@@ -780,6 +877,29 @@
         const SHARE_MODE_KEY = 'mk360_share_mode';
         const EXPORT_SPEED_KEY = 'mk360_export_speed';
         const CAMERA_ZOOM_KEY = 'mk360_camera_zoom';
+        const deployModeBadge = document.getElementById('deployModeBadge');
+
+        function readDeployPresetFromUrl() {
+            const sp = new URLSearchParams(location.search || '');
+            const fromUrl = {
+                backendOrigin: String(sp.get('api') || '').trim(),
+                driveWebhook: String(sp.get('webhook') || '').trim(),
+                shareMode: String(sp.get('mode') || '').trim(),
+                lock: String(sp.get('lock') || '').trim()
+            };
+            return fromUrl;
+        }
+
+        function resolveDeployPreset() {
+            const fromUrl = readDeployPresetFromUrl();
+            const out = { ...DEPLOY_PRESET };
+            if (fromUrl.backendOrigin) out.backendOrigin = fromUrl.backendOrigin;
+            if (fromUrl.driveWebhook) out.driveWebhook = fromUrl.driveWebhook;
+            if (['auto', 'server', 'drive'].includes(fromUrl.shareMode)) out.shareMode = fromUrl.shareMode;
+            if (fromUrl.lock === '0') out.lockSettingsForOperator = false;
+            if (fromUrl.lock === '1') out.lockSettingsForOperator = true;
+            return out;
+        }
 
         function getSelectedFacingMode() {
             const v = cameraFacingSelect ? cameraFacingSelect.value : 'user';
@@ -903,6 +1023,115 @@
             uploadFolderStatus.innerText = message;
         }
 
+        function setSetupChip(el, ok, text) {
+            if (!el) return;
+            el.className = `status-chip ${ok ? 'ok' : 'warn'}`;
+            el.innerText = text;
+        }
+
+        function isValidDriveWebhook(urlStr) {
+            try {
+                const u = new URL(String(urlStr || '').trim());
+                return (
+                    u.protocol === 'https:' &&
+                    u.hostname === 'script.google.com' &&
+                    /\/macros\/s\/[^/]+\/exec$/.test(u.pathname.replace(/\/$/, ''))
+                );
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function isConfiguredNodeBackendValidForQr() {
+            if (!apiBackendUrlInput) return false;
+            const raw = String(apiBackendUrlInput.value || '').trim();
+            if (!raw) return false;
+            try {
+                const u = new URL(raw.replace(/\/$/, ''));
+                if (u.protocol !== 'https:') return false;
+                if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return false;
+                if (isStaticPagesHost(location.hostname || '') && u.origin === window.location.origin) return false;
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function updateQrSetupAssistant() {
+            const mode = shareModeSelect ? String(shareModeSelect.value || 'auto') : 'auto';
+            const modeOk = ['auto', 'server', 'drive'].includes(mode);
+            const webhookOk = isValidDriveWebhook(driveWebhookInput ? driveWebhookInput.value : '');
+            const nodeOk = isConfiguredNodeBackendValidForQr();
+            const staticHost = isStaticPagesHost(location.hostname || '');
+            let ready = false;
+            if (!modeOk) ready = false;
+            else if (!staticHost) ready = mode === 'server' ? nodeOk : webhookOk;
+            else if (!nodeOk) ready = false;
+            else if (mode === 'server') ready = true;
+            else ready = webhookOk;
+
+            setSetupChip(qrChipMode, modeOk, modeOk ? `Modo ${mode.toUpperCase()} OK` : `Modo ${mode.toUpperCase()} (ajuste)`);
+            setSetupChip(qrChipWebhook, webhookOk, webhookOk ? 'Webhook Drive OK' : 'Webhook Drive pendente');
+            setSetupChip(qrChipNode, nodeOk, nodeOk ? 'Node público HTTPS OK' : 'Node público pendente');
+            setSetupChip(qrChipReady, ready, ready ? 'QR pronto para compartilhar' : 'QR ainda não pronto');
+
+            if (!qrSetupSummary) return;
+            if (ready) {
+                qrSetupSummary.innerText = 'Configuração validada. O sistema deve gerar QR/WhatsApp/Web com link público ao finalizar o vídeo.';
+            } else if (staticHost && !nodeOk) {
+                qrSetupSummary.innerText = 'No GitHub Pages, informe uma URL HTTPS pública do Node para habilitar geração de link do QR.';
+            } else if (mode !== 'server' && !webhookOk) {
+                qrSetupSummary.innerText = 'Cole a URL /exec do Google Apps Script para habilitar fallback e partilha pública.';
+            } else if (!webhookOk) {
+                qrSetupSummary.innerText = 'Sem webhook válido, o modo atual pode limitar partilha/Drive.';
+            } else {
+                qrSetupSummary.innerText = 'Use modo Automático ou Só servidor de ficheiros para fluxo mais estável em eventos.';
+            }
+        }
+
+        function applyDeployPreset() {
+            const preset = resolveDeployPreset();
+            if (!preset.enabled) return;
+
+            if (preset.backendOrigin) {
+                localStorage.setItem(API_BACKEND_KEY, preset.backendOrigin.trim());
+                if (apiBackendUrlInput) apiBackendUrlInput.value = preset.backendOrigin.trim();
+            }
+            if (preset.driveWebhook) {
+                localStorage.setItem('mk360_drive_webhook', preset.driveWebhook.trim());
+                if (driveWebhookInput) driveWebhookInput.value = preset.driveWebhook.trim();
+            }
+            if (preset.shareMode && ['auto', 'server', 'drive'].includes(preset.shareMode)) {
+                localStorage.setItem(SHARE_MODE_KEY, preset.shareMode);
+                if (shareModeSelect) shareModeSelect.value = preset.shareMode;
+            }
+            if (preset.cameraFacing && ['user', 'environment'].includes(preset.cameraFacing)) {
+                localStorage.setItem(CAMERA_FACING_KEY, preset.cameraFacing);
+                if (cameraFacingSelect) cameraFacingSelect.value = preset.cameraFacing;
+            }
+
+            if (preset.lockSettingsForOperator) {
+                const lockIds = [
+                    'apiBackendUrlInput',
+                    'driveWebhookInput',
+                    'shareModeSelect'
+                ];
+                lockIds.forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.setAttribute('disabled', 'disabled');
+                    el.classList.add('opacity-70');
+                });
+                saveDriveBtn?.setAttribute('disabled', 'disabled');
+                saveDriveBtn?.classList.add('opacity-70');
+                settingsGearBtn.style.display = 'none';
+                const setupArea = document.getElementById('setupArea');
+                if (setupArea) setupArea.classList.add('hidden');
+            }
+
+            if (deployModeBadge) deployModeBadge.classList.remove('hidden');
+        }
+
         async function refreshUploadFolderPath() {
             if (!uploadFolderPathInput) return;
             if (!isHttpContext) {
@@ -992,6 +1221,13 @@
                 testDriveBtn.innerText = 'Testando...';
                 const staticHost = isStaticPagesHost(location.hostname || '');
                 const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
+                if (staticHost && !hasNodeProxy) {
+                    renderDriveStatus(
+                        false,
+                        'No site publicado, configure URL HTTPS do Node para usar proxy /api/drive-upload. Sem proxy o browser bloqueia upload por CORS.'
+                    );
+                    return false;
+                }
 
                 if (hasNodeProxy) {
                     await warmResolveApiOrigin();
@@ -1084,6 +1320,8 @@
             });
         }
 
+        applyDeployPreset();
+
         (function migrateDriveWebhook() {
             let w = localStorage.getItem('mk360_drive_webhook');
             if (w && w.includes(LEGACY_DRIVE_WEBHOOK_ID)) {
@@ -1095,25 +1333,41 @@
         const apiBackendUrlInput = document.getElementById('apiBackendUrlInput');
         const shareModeSelect = document.getElementById('shareModeSelect');
         if (apiBackendUrlInput) {
-            const savedApiBackend = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            let savedApiBackend = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            // Limpa configuração antiga inválida que aponta para o próprio GitHub Pages.
+            if (savedApiBackend) {
+                try {
+                    const parsed = new URL(savedApiBackend.replace(/\/$/, ''));
+                    const staticHost = isStaticPagesHost(location.hostname || '');
+                    const invalidStatic = staticHost && parsed.origin === window.location.origin;
+                    const invalidProtocol = parsed.protocol !== 'https:';
+                    if (invalidStatic || invalidProtocol) {
+                        savedApiBackend = '';
+                        localStorage.removeItem(API_BACKEND_KEY);
+                    }
+                } catch (_) {
+                    savedApiBackend = '';
+                    localStorage.removeItem(API_BACKEND_KEY);
+                }
+            }
             apiBackendUrlInput.value = savedApiBackend;
             apiBackendUrlInput.addEventListener('change', () => {
                 localStorage.setItem(API_BACKEND_KEY, apiBackendUrlInput.value.trim());
                 invalidateApiOriginCache();
                 refreshUploadFolderPath().catch(() => {});
+                updateQrSetupAssistant();
                 showNotice('URL do servidor Node salva.');
             });
         }
         if (shareModeSelect) {
             const savedShareMode = localStorage.getItem(SHARE_MODE_KEY);
-            const defaultShareMode = isStaticPagesHost(location.hostname || '') ? 'drive' : 'auto';
+            const defaultShareMode = 'auto';
             const sm = savedShareMode || defaultShareMode;
             shareModeSelect.value = ['auto', 'server', 'drive'].includes(sm) ? sm : defaultShareMode;
-            if (!savedShareMode && defaultShareMode !== 'auto') {
-                localStorage.setItem(SHARE_MODE_KEY, defaultShareMode);
-            }
+            if (!savedShareMode) localStorage.setItem(SHARE_MODE_KEY, defaultShareMode);
             shareModeSelect.addEventListener('change', () => {
                 localStorage.setItem(SHARE_MODE_KEY, shareModeSelect.value);
+                updateQrSetupAssistant();
                 showNotice('Modo de partilha salvo.');
             });
         }
@@ -1138,12 +1392,24 @@
             localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
             showNotice("Webhook Google Drive salvo.");
             renderDriveStatus(false, 'Webhook salvo. Clique em Testar Conexão.');
+            updateQrSetupAssistant();
         };
         saveDriveBtn.onclick = () => {
             localStorage.setItem('mk360_drive_webhook', driveWebhookInput.value.trim());
             renderDriveStatus(false, 'Webhook salvo. Clique em Testar Conexão.');
+            updateQrSetupAssistant();
             showNotice("Configuração do Drive salva.");
         };
+        if (applyQrPresetBtn) {
+            applyQrPresetBtn.onclick = () => {
+                if (shareModeSelect) {
+                    shareModeSelect.value = 'auto';
+                    localStorage.setItem(SHARE_MODE_KEY, 'auto');
+                }
+                updateQrSetupAssistant();
+                showNotice('Preset QR aplicado: modo Automático + checklist atualizado.');
+            };
+        }
         if (refreshUploadFolderBtn) {
             refreshUploadFolderBtn.onclick = () => {
                 refreshUploadFolderPath().catch(() => {});
@@ -1153,6 +1419,7 @@
         if (driveWebhookInput.value.trim()) {
             renderDriveStatus(false, 'Webhook carregado. Clique em Testar Conexão.');
         }
+        updateQrSetupAssistant();
         settingsGearBtn.onclick = () => {
             document.getElementById('setupArea').classList.toggle('hidden');
         };
@@ -2044,11 +2311,18 @@
             return _resolvedApiOrigin;
         }
 
-        function drivePublicViewUrl(payload) {
-            if (!payload) return '';
-            if (payload.viewUrl) return String(payload.viewUrl);
-            if (payload.fileId) return 'https://drive.google.com/file/d/' + payload.fileId + '/view?usp=sharing';
-            return String(payload.fileUrl || '');
+        function drivePublicLinks(payload) {
+            if (!payload) return { shareUrl: '', browserUrl: '' };
+            const fileId = String(payload.fileId || '').trim();
+            const browserUrl = payload.viewUrl
+                ? String(payload.viewUrl)
+                : (fileId ? ('https://drive.google.com/file/d/' + fileId + '/view?usp=sharing') : String(payload.fileUrl || ''));
+            const directFromPayload =
+                String(payload.directDownloadUrl || payload.downloadUrl || '').trim();
+            const shareUrl = directFromPayload || (fileId
+                ? ('https://drive.google.com/uc?export=download&id=' + encodeURIComponent(fileId))
+                : browserUrl);
+            return { shareUrl, browserUrl: browserUrl || shareUrl };
         }
 
         /** Base64 estável para o Apps Script (POST binário cru costuma chegar vazio). */
@@ -2071,6 +2345,11 @@
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
             const staticHost = isStaticPagesHost(location.hostname || '');
             const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
+            if (staticHost && !hasNodeProxy) {
+                throw new Error(
+                    'No site publicado, o browser bloqueia envio direto ao Google por CORS. Configure URL HTTPS de um Node público para usar o proxy /api/drive-upload.'
+                );
+            }
             if (hasNodeProxy) {
                 await warmResolveApiOrigin();
             }
@@ -2463,6 +2742,7 @@
             let shareUrlForHistory = null;
             let videoAlreadyOnDriveForSharing = false;
             let drivePublishErrorMessage = "";
+            let skipDriveMirrorUpload = false;
             if (!blobForUpload) {
                 qrMessage.innerText = "Vídeo pronto para baixar neste aparelho.";
                 const localFileName = getSafeFileName(extension);
@@ -2501,14 +2781,16 @@
                     }
                     const webhookConfigured = (driveWebhookInput.value || '').trim();
                     let shareUrl = null;
+                    let browserUrl = null;
 
                     async function publishLinkViaDrive() {
                         if (!webhookConfigured) return null;
                         try {
                             const dr = await sendToGoogleDrive(blobForUpload, finalName);
                             if (dr.skipped || !dr.payload) return null;
-                            const u = drivePublicViewUrl(dr.payload);
-                            return u || null;
+                            const links = drivePublicLinks(dr.payload);
+                            if (links.browserUrl) browserUrl = links.browserUrl;
+                            return links.shareUrl || null;
                         } catch (e) {
                             drivePublishErrorMessage = String(e && e.message ? e.message : e || '');
                             console.warn('Drive (link público):', e);
@@ -2567,13 +2849,16 @@
                     directDownloadBtn.href = shareUrl;
                     directDownloadBtn.setAttribute('download', finalName);
                     directDownloadBtn.classList.remove('hidden');
-                    openInBrowserBtn.href = shareUrl;
+                    openInBrowserBtn.href = browserUrl || shareUrl;
                     openInBrowserBtn.classList.remove('hidden');
                     setupShareActions(shareUrl);
                     document.getElementById('resultTitle').innerText = "VÍDEO PUBLICADO COM SUCESSO!";
                 } catch (uploadError) {
                     console.warn("Publicar link:", uploadError.message || uploadError);
                     shareUrlForHistory = null;
+                    if (drivePublishErrorMessage) {
+                        skipDriveMirrorUpload = true;
+                    }
                     const detail = uploadError && uploadError.message ? String(uploadError.message).slice(0, 220) : '';
                     qrMessage.innerText =
                         "Não foi possível publicar link (QR / WhatsApp / Web). " +
@@ -2598,6 +2883,9 @@
                 try {
                     if (videoAlreadyOnDriveForSharing) {
                         driveStatusMessage.innerText = "Drive: vídeo já está na pasta; o QR e as partilhas usam o link público do mesmo ficheiro.";
+                        driveStatusMessage.classList.remove('hidden');
+                    } else if (skipDriveMirrorUpload) {
+                        driveStatusMessage.innerText = "Drive: envio adicional ignorado para evitar repetição do mesmo erro de publicação.";
                         driveStatusMessage.classList.remove('hidden');
                     } else if (staticHost && !hasNodeProxy) {
                         driveStatusMessage.innerText =
@@ -2714,6 +3002,7 @@
         window.addEventListener('load', () => {
             syncQueuedDriveUploads();
             renderHistory();
+            updateQrSetupAssistant();
             const staticHost = isStaticPagesHost(location.hostname || '');
             const hasNodeBackend = hasUsableConfiguredNodeBackend();
             const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();

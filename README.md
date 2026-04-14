@@ -36,6 +36,44 @@ As configuracoes foram separadas em:
 4. Abra esse endereco no navegador do celular.
 5. Se nao abrir, libere a porta `8080` no firewall do Windows.
 
+### Modo publicacao sem configuracao manual (PWA iPhone)
+
+No `index.html`, existe um preset de producao para operador final:
+
+- `DEPLOY_PRESET.enabled = true`
+- `DEPLOY_PRESET.backendOrigin = "https://SEU-NODE-PUBLICO-HTTPS"` (obrigatorio)
+- `DEPLOY_PRESET.driveWebhook = "https://script.google.com/macros/s/.../exec"`
+- `DEPLOY_PRESET.shareMode = "auto"`
+- `DEPLOY_PRESET.lockSettingsForOperator = true`
+
+Com isso, ao abrir o link publicado no iPhone, o app ja carrega com parametros fixos
+e o operador nao precisa configurar nada manualmente.
+
+### Tutorial completo (QR no smartphone)
+
+Use este fluxo para garantir QR/WhatsApp/Web funcionando:
+
+1. Execute `iniciar-mk360-com-tunel.bat` (abre Node + Tunnel + site).
+2. Copie a URL `https://*.trycloudflare.com` no terminal do Tunnel.
+3. No site publicado, abra Configuracoes.
+4. Em `URL publica do server.js`, cole a URL do Tunnel.
+5. Em `URL do Web App (Apps Script)`, cole a URL `/exec` publicada.
+6. Em `Origem do link`, selecione `Automático`.
+7. Clique em `Salvar Drive` e depois `Testar Conexão`.
+8. Grave um video e confirme que o QR aparece no resultado.
+
+Checklist rapido:
+
+- Node local ativo (`npm start`)
+- Tunnel ativo (`cloudflared tunnel --url http://localhost:8080`)
+- URL do Node em HTTPS no painel
+- Webhook `/exec` valido
+- Modo de partilha em `Automático` ou `Só servidor de ficheiros`
+
+Nota importante para smartphone em site publicado:
+
+- sem `URL publica do server.js` (Node HTTPS), o browser bloqueia upload ao Drive por CORS e o QR publico nao e gerado.
+
 ### Atalho 1 clique (Node + Tunnel)
 
 Para abrir tudo automaticamente no Windows, execute:
@@ -66,7 +104,7 @@ Em `github.io`, o browser normalmente nao ativa `SharedArrayBuffer` (sem COOP/CO
 
 - o FFmpeg pode nao converter para MP4;
 - o app entra em modo compativel e segue com ficheiro `WEBM` para manter o QR e a partilha.
-- o upload direto para `script.google.com` pode ser bloqueado por CORS; para gerar QR/link publico com Drive, use URL HTTPS de um Node publico com proxy `/api/drive-upload`.
+- o upload direto para `script.google.com` e bloqueado por CORS no browser; para gerar QR/link publico, use URL HTTPS de um Node publico com proxy `/api/drive-upload`.
 
 ### Atualizacao do site publicado (cache)
 

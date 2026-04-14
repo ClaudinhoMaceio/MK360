@@ -1,18 +1,21 @@
-const CACHE_NAME = "mk360-cache-v7";
+const CACHE_NAME = "mk360-cache-v8"; // Incrementado para forçar atualização
 
 self.addEventListener("install", (event) => {
   const scope = self.registration.scope;
-  // Pré-cache mínimo; index.html deve priorizar rede para evitar executar JS antigo.
-  const paths = [
-    "manifest.webmanifest",
-    "icon.svg",
-    "vendor/tailwind-built.css",
+  const assetsToCache = [
+    new URL("index.html", scope).href,
+    new URL("manifest.webmanifest", scope).href,
+    new URL("icon.svg", scope).href,
   ];
-  const urls = paths.map((p) => new URL(p, scope).href);
+
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      Promise.all(urls.map((u) => cache.add(u).catch(() => {})))
-    )
+    caches
+      .open(CACHE_NAME)
+      .then((cache) =>
+        cache
+          .addAll(assetsToCache)
+          .catch((err) => console.warn("Cache inicial falhou, ignorando...", err))
+      )
   );
   self.skipWaiting();
 });
@@ -20,38 +23,23 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      )
+      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
     )
   );
   self.clients.claim();
 });
 
+// Estratégia: Network First para index.html (evitar cache de erros), Cache First para o resto
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  const requestUrl = new URL(event.request.url);
-  const isHttp = requestUrl.protocol.startsWith("http");
-  if (!isHttp) return;
-
+  const url = new URL(event.request.url);
   const indexUrl = new URL("index.html", self.registration.scope).href;
-  const isDocumentRequest =
-    event.request.mode === "navigate" ||
-    event.request.destination === "document";
 
-  if (isDocumentRequest) {
+  // Não cachear chamadas de API nem métodos não-GET
+  if (url.pathname.includes("/api/") || event.request.method !== "GET") return;
+
+  if (event.request.mode === "navigate") {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200 && response.type !== "opaque") {
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-          }
-          return response;
-        })
-        .catch(() => caches.match(event.request).then((cached) => cached || caches.match(indexUrl)))
+      fetch(event.request).catch(() => caches.match(indexUrl))
     );
     return;
   }
@@ -59,6 +47,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
+
       return fetch(event.request)
         .then((response) => {
           if (!response || response.status !== 200 || response.type === "opaque") {
@@ -68,7 +57,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           return response;
         })
-        .catch(() => caches.match(indexUrl));
+        .catch(() => new Response("Offline", { status: 503 }));
     })
   );
 });

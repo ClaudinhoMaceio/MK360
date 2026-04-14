@@ -34,7 +34,7 @@ function setSecurityHeaders(res, opts = {}) {
     opts.apiRoute ? "cross-origin" : "same-origin"
   );
   // Garante que a política de permissões não bloqueie getUserMedia na própria origem.
-  res.setHeader("Permissions-Policy", "camera=(self)");
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(self)");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 }
@@ -203,6 +203,7 @@ function handleRequest(req, res) {
   if (
     req.method === "OPTIONS" &&
     (pathname === "/api/server-info" ||
+      pathname === "/api/config" ||
       pathname === "/api/upload" ||
       pathname === "/api/drive-upload" ||
       pathname === "/api/drive-ping")
@@ -214,6 +215,18 @@ function handleRequest(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/api/server-info") {
+    const hostHeader = req.headers.host || `${getLanIPv4()}:${HTTP_PORT}`;
+    const protocol = req.socket.encrypted ? "https" : "http";
+    return apiJson(req, res, 200, {
+      origin: `${protocol}://${hostHeader}`,
+      lanOrigin: `http://${getLanIPv4()}:${HTTP_PORT}`,
+      publicDownloadOrigin: MK360_PUBLIC_ORIGIN || null,
+      uploadDir: UPLOAD_DIR
+    });
+  }
+
+  // Alias de compatibilidade para clientes que usam /api/config.
+  if (req.method === "GET" && pathname === "/api/config") {
     const hostHeader = req.headers.host || `${getLanIPv4()}:${HTTP_PORT}`;
     const protocol = req.socket.encrypted ? "https" : "http";
     return apiJson(req, res, 200, {
