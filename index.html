@@ -911,9 +911,14 @@
             }
             const staticHost = isStaticPagesHost(location.hostname || '');
             const hasNodeBackend = hasUsableConfiguredNodeBackend();
+            const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
             if (staticHost && !hasNodeBackend) {
                 uploadFolderPathInput.value = '';
-                renderUploadFolderStatus(false, 'No GitHub Pages esta pasta só aparece quando houver URL pública do Node em Configurações.');
+                if (mode === 'drive') {
+                    renderUploadFolderStatus(false, 'Modo Drive ativo no GitHub Pages: sem Node público, não existe pasta local para consultar.');
+                } else {
+                    renderUploadFolderStatus(false, 'No GitHub Pages esta pasta só aparece quando houver URL pública do Node em Configurações.');
+                }
                 return;
             }
             try {
@@ -1168,7 +1173,8 @@
         if ('serviceWorker' in navigator && isHttpContext) {
             window.addEventListener('load', () => {
                 const pageDir = mk360PageDirectoryBase();
-                const swUrl = new URL('sw.js', pageDir).href;
+                const swVersion = 'v7';
+                const swUrl = new URL(`sw.js?${swVersion}`, pageDir).href;
                 fetch(swUrl, { method: 'HEAD', cache: 'no-store' })
                     .then((res) => {
                         if (!res.ok) return null;
@@ -2694,16 +2700,21 @@
             renderHistory();
             const staticHost = isStaticPagesHost(location.hostname || '');
             const hasNodeBackend = hasUsableConfiguredNodeBackend();
+            const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
             if (!staticHost || hasNodeBackend) {
                 warmResolveApiOrigin().catch(() => {});
             }
             if (!staticHost || hasNodeBackend) {
                 refreshUploadFolderPath().catch(() => {});
             } else {
-                renderUploadFolderStatus(false, 'No GitHub Pages informe a URL do Node para consultar a pasta local.');
+                if (mode === 'drive') {
+                    renderUploadFolderStatus(false, 'Modo Drive ativo: pasta local do Node não é usada neste host.');
+                } else {
+                    renderUploadFolderStatus(false, 'No GitHub Pages informe a URL do Node para consultar a pasta local.');
+                }
             }
             warnGithubPagesNeedsPublicNode();
-            if (!window.crossOriginIsolated) {
+            if (!window.crossOriginIsolated && mode !== 'drive') {
                 showNotice(
                     "Para efeitos (reverso) e FFmpeg: rode node server.js em http://localhost:8080. " +
                         "Para o QR no telemóvel pode usar o IP da rede, mas a câmera no PC tem de ser localhost ou HTTPS."

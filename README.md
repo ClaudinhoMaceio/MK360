@@ -52,6 +52,13 @@ Em `github.io`, o browser normalmente nao ativa `SharedArrayBuffer` (sem COOP/CO
 - o FFmpeg pode nao converter para MP4;
 - o app entra em modo compativel e segue com ficheiro `WEBM` para manter o QR e a partilha.
 
+### Atualizacao do site publicado (cache)
+
+Se o navegador continuar mostrando erros antigos apos publicar:
+
+1. Recarregue com `Ctrl + F5`
+2. Se ainda persistir, remova o Service Worker do site e limpe o cache no navegador
+
 ## 5) Certificado HTTPS (opcional, recomendado)
 
 Crie a pasta `certs` e adicione:
