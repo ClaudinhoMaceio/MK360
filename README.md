@@ -40,7 +40,7 @@ As configuracoes foram separadas em:
 
 No `index.html`, existe um preset de producao para operador final:
 
-- `DEPLOY_PRESET.enabled = true`
+- `DEPLOY_PRESET.enabled = true` (ative somente quando o backend ja estiver definido)
 - `DEPLOY_PRESET.backendOrigin = "https://SEU-NODE-PUBLICO-HTTPS"` (obrigatorio)
 - `DEPLOY_PRESET.driveWebhook = "https://script.google.com/macros/s/.../exec"`
 - `DEPLOY_PRESET.shareMode = "auto"`
@@ -48,6 +48,12 @@ No `index.html`, existe um preset de producao para operador final:
 
 Com isso, ao abrir o link publicado no iPhone, o app ja carrega com parametros fixos
 e o operador nao precisa configurar nada manualmente.
+
+Se `backendOrigin` estiver vazio, o sistema entra em modo de seguranca:
+
+- nao bloqueia configuracoes;
+- mostra aviso de preset parcial;
+- evita travar a operacao.
 
 ### Tutorial completo (QR no smartphone)
 

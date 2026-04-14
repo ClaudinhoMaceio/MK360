@@ -855,7 +855,7 @@
         // Preset de produção para uso em smartphone/PWA sem configuração manual do operador.
         // Importante: preencha backendOrigin com a URL HTTPS fixa do seu Node público.
         const DEPLOY_PRESET = {
-            enabled: true,
+            enabled: false,
             lockSettingsForOperator: true,
             backendOrigin: '',
             driveWebhook: DEFAULT_DRIVE_WEBHOOK,
@@ -1092,10 +1092,12 @@
         function applyDeployPreset() {
             const preset = resolveDeployPreset();
             if (!preset.enabled) return;
+            const normalizedBackend = String(preset.backendOrigin || '').trim();
+            const canLock = Boolean(normalizedBackend);
 
-            if (preset.backendOrigin) {
-                localStorage.setItem(API_BACKEND_KEY, preset.backendOrigin.trim());
-                if (apiBackendUrlInput) apiBackendUrlInput.value = preset.backendOrigin.trim();
+            if (normalizedBackend) {
+                localStorage.setItem(API_BACKEND_KEY, normalizedBackend);
+                if (apiBackendUrlInput) apiBackendUrlInput.value = normalizedBackend;
             }
             if (preset.driveWebhook) {
                 localStorage.setItem('mk360_drive_webhook', preset.driveWebhook.trim());
@@ -1110,7 +1112,7 @@
                 if (cameraFacingSelect) cameraFacingSelect.value = preset.cameraFacing;
             }
 
-            if (preset.lockSettingsForOperator) {
+            if (preset.lockSettingsForOperator && canLock) {
                 const lockIds = [
                     'apiBackendUrlInput',
                     'driveWebhookInput',
@@ -1129,7 +1131,12 @@
                 if (setupArea) setupArea.classList.add('hidden');
             }
 
-            if (deployModeBadge) deployModeBadge.classList.remove('hidden');
+            if (deployModeBadge) {
+                deployModeBadge.classList.remove('hidden');
+                if (!canLock) {
+                    deployModeBadge.innerText = 'Modo produção parcial: defina DEPLOY_PRESET.backendOrigin para bloquear e operar 100% automático.';
+                }
+            }
         }
 
         async function refreshUploadFolderPath() {
