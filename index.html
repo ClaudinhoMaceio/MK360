@@ -909,6 +909,13 @@
                 renderUploadFolderStatus(false, 'Abra em http://localhost:8080 para consultar a pasta.');
                 return;
             }
+            const staticHost = isStaticPagesHost(location.hostname || '');
+            const hasNodeBackend = hasUsableConfiguredNodeBackend();
+            if (staticHost && !hasNodeBackend) {
+                uploadFolderPathInput.value = '';
+                renderUploadFolderStatus(false, 'No GitHub Pages esta pasta só aparece quando houver URL pública do Node em Configurações.');
+                return;
+            }
             try {
                 if (refreshUploadFolderBtn) {
                     refreshUploadFolderBtn.disabled = true;
@@ -984,32 +991,37 @@
             try {
                 testDriveBtn.disabled = true;
                 testDriveBtn.innerText = 'Testando...';
-                await warmResolveApiOrigin();
+                const staticHost = isStaticPagesHost(location.hostname || '');
+                const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
 
-                /** 1) Ping pelo servidor Node (evita CORS e JSONP que muitas vezes falha no browser). */
-                const pingProxyUrl = new URL(
-                    '/api/drive-ping?webhook=' + encodeURIComponent(webhook),
-                    resolveApiOrigin()
-                ).href;
-                try {
-                    const response = await fetch(pingProxyUrl, { method: 'GET', cache: 'no-store' });
-                    const text = await response.text();
-                    let data = null;
+                if (hasNodeProxy) {
+                    await warmResolveApiOrigin();
+
+                    /** 1) Ping pelo servidor Node (evita CORS e JSONP que muitas vezes falha no browser). */
+                    const pingProxyUrl = new URL(
+                        '/api/drive-ping?webhook=' + encodeURIComponent(webhook),
+                        resolveApiOrigin()
+                    ).href;
                     try {
-                        data = JSON.parse(text);
-                    } catch (_) {}
-                    if (response.status !== 404 && data) {
-                        if (response.ok && data.ok === true) {
-                            renderDriveStatus(true, 'Drive conectado com sucesso.');
-                            return true;
+                        const response = await fetch(pingProxyUrl, { method: 'GET', cache: 'no-store' });
+                        const text = await response.text();
+                        let data = null;
+                        try {
+                            data = JSON.parse(text);
+                        } catch (_) {}
+                        if (response.status !== 404 && data) {
+                            if (response.ok && data.ok === true) {
+                                renderDriveStatus(true, 'Drive conectado com sucesso.');
+                                return true;
+                            }
+                            if (data.error) {
+                                throw new Error(String(data.error));
+                            }
                         }
-                        if (data.error) {
-                            throw new Error(String(data.error));
+                    } catch (proxyErr) {
+                        if (proxyErr && proxyErr.message && !String(proxyErr.message).includes('Failed to fetch')) {
+                            throw proxyErr;
                         }
-                    }
-                } catch (proxyErr) {
-                    if (proxyErr && proxyErr.message && !String(proxyErr.message).includes('Failed to fetch')) {
-                        throw proxyErr;
                     }
                 }
 
@@ -1084,7 +1096,8 @@
         const apiBackendUrlInput = document.getElementById('apiBackendUrlInput');
         const shareModeSelect = document.getElementById('shareModeSelect');
         if (apiBackendUrlInput) {
-            apiBackendUrlInput.value = localStorage.getItem(API_BACKEND_KEY) || '';
+            const savedApiBackend = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            apiBackendUrlInput.value = savedApiBackend;
             apiBackendUrlInput.addEventListener('change', () => {
                 localStorage.setItem(API_BACKEND_KEY, apiBackendUrlInput.value.trim());
                 invalidateApiOriginCache();
@@ -1093,8 +1106,13 @@
             });
         }
         if (shareModeSelect) {
-            const sm = localStorage.getItem(SHARE_MODE_KEY) || 'auto';
-            shareModeSelect.value = ['auto', 'server', 'drive'].includes(sm) ? sm : 'auto';
+            const savedShareMode = localStorage.getItem(SHARE_MODE_KEY);
+            const defaultShareMode = isStaticPagesHost(location.hostname || '') ? 'drive' : 'auto';
+            const sm = savedShareMode || defaultShareMode;
+            shareModeSelect.value = ['auto', 'server', 'drive'].includes(sm) ? sm : defaultShareMode;
+            if (!savedShareMode && defaultShareMode !== 'auto') {
+                localStorage.setItem(SHARE_MODE_KEY, defaultShareMode);
+            }
             shareModeSelect.addEventListener('change', () => {
                 localStorage.setItem(SHARE_MODE_KEY, shareModeSelect.value);
                 showNotice('Modo de partilha salvo.');
@@ -1861,6 +1879,24 @@
             );
         }
 
+        function getConfiguredBackendOrigin() {
+            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            if (!raw) return '';
+            try {
+                return new URL(raw.replace(/\/$/, '')).origin;
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function hasUsableConfiguredNodeBackend() {
+            const configuredOrigin = getConfiguredBackendOrigin();
+            if (!configuredOrigin) return false;
+            const staticHost = isStaticPagesHost(location.hostname || '');
+            if (staticHost && configuredOrigin === window.location.origin) return false;
+            return true;
+        }
+
         function isLocalDevOriginString(originStr) {
             try {
                 const u = new URL(originStr);
@@ -1872,7 +1908,7 @@
 
         /** Origem do Node para /api/* sem ping (fallback imediato). */
         function resolveApiOriginHeuristic() {
-            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            const raw = getConfiguredBackendOrigin();
             const h = String(location.hostname || '').toLowerCase();
             const loopback = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
             if (loopback) {
@@ -1881,9 +1917,7 @@
             const staticHost =
                 isStaticPagesHost(h) || location.protocol === 'file:';
             if (staticHost && raw) {
-                try {
-                    return new URL(raw.replace(/\/$/, '')).origin;
-                } catch (_) {}
+                return raw;
             }
             return window.location.origin;
         }
@@ -1896,13 +1930,16 @@
         function assertPublicNodeConfiguredForStaticHost() {
             const h = String(location.hostname || '').toLowerCase();
             if (!isStaticPagesHost(h)) return;
-            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
+            const raw = getConfiguredBackendOrigin();
             if (!raw) {
                 throw new Error(
                     'Em GitHub Pages é obrigatório preencher em Configurações a URL HTTPS pública onde corre o node server.js (não use vazio nem localhost).'
                 );
             }
-            if (/localhost|127\.0\.0\.1/i.test(raw)) {
+            if (
+                /localhost|127\.0\.0\.1/i.test(raw) ||
+                (isStaticPagesHost(h) && raw === window.location.origin)
+            ) {
                 throw new Error(
                     'Em GitHub Pages o campo do Node não pode ser localhost — use HTTPS do seu túnel ou servidor (ex.: Cloudflare Tunnel).'
                 );
@@ -1942,13 +1979,7 @@
             if (_resolvedApiOrigin) return _resolvedApiOrigin;
             const h = String(location.hostname || '').toLowerCase();
             const loopback = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
-            const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
-            let configuredOrigin = null;
-            if (raw) {
-                try {
-                    configuredOrigin = new URL(raw.replace(/\/$/, '')).origin;
-                } catch (_) {}
-            }
+            const configuredOrigin = getConfiguredBackendOrigin() || null;
             const pageHttps = location.protocol === 'https:';
             const onStatic = isStaticPagesHost(h);
 
@@ -1959,6 +1990,9 @@
                     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
                         if (pageHttps) return true;
                         if (onStatic) return true;
+                    }
+                    if (onStatic && u.origin === window.location.origin) {
+                        return true;
                     }
                     if (pageHttps && u.protocol === 'http:' && u.hostname !== '127.0.0.1' && u.hostname !== 'localhost') {
                         return true;
@@ -2193,10 +2227,16 @@
                 const directionMode = directionEffectInput.value;
                 const speedValue = speedEffectInput.value;
                 const effectEnabled = directionMode !== "normal" || Number(speedValue) !== 1;
-                const canUseAdvancedEffects = isHttpContext;
+                const canUseFfmpegWasm = typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated;
 
-                if (!canUseAdvancedEffects) {
-                    throw new Error("Este sistema só entrega vídeos em MP4. Abra pelo servidor em http://localhost:8080 para converter e compartilhar.");
+                if (!canUseFfmpegWasm) {
+                    const fallbackUrl = URL.createObjectURL(blob);
+                    const fallbackTitle = effectEnabled
+                        ? 'VÍDEO PRONTO (MODO COMPATÍVEL - sem efeitos FFmpeg)'
+                        : 'VÍDEO PRONTO! GERANDO QR...';
+                    showNotice('Este host não suporta SharedArrayBuffer. O vídeo foi gerado em WEBM para manter o QR funcionando.');
+                    await showResult(fallbackUrl, fallbackTitle, blob, 'webm');
+                    return;
                 }
 
                 try {
@@ -2321,6 +2361,13 @@
                     showResult(localUrl, "VÍDEO PRONTO! GERANDO QR...", finalBlob, 'mp4');
                 } catch (ffmpegError) {
                     console.warn("FFmpeg falhou ao gerar MP4:", ffmpegError);
+                    const ffmpegMsg = String(ffmpegError && ffmpegError.message ? ffmpegError.message : ffmpegError || '');
+                    if (/SharedArrayBuffer/i.test(ffmpegMsg)) {
+                        const fallbackUrl = URL.createObjectURL(blob);
+                        showNotice('FFmpeg indisponível neste host. O vídeo foi gerado em WEBM para manter o QR funcionando.');
+                        await showResult(fallbackUrl, "VÍDEO PRONTO (WEBM COMPATÍVEL)", blob, 'webm');
+                        return;
+                    }
                     throw new Error(
                         "Não foi possível gerar o MP4. Confirme: (1) abriu em http://localhost:8080 com node server.js; " +
                         "(2) existem vendor/ffmpeg-core.wasm e vendor/ffmpeg-core.worker.js na pasta do projeto. " +
@@ -2433,9 +2480,14 @@
                 openInBrowserBtn.classList.remove('hidden');
                 qrMessage.innerText = 'Pode já guardar o vídeo neste aparelho. A preparar o link público para o QR…';
                 try {
-                    await warmResolveApiOrigin();
                     const finalName = getSafeFileName(extension);
                     const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
+                    const staticHost = isStaticPagesHost(location.hostname || '');
+                    const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
+                    const shouldWarmNodeApi = mode === 'server' || (mode === 'auto' && hasNodeProxy);
+                    if (shouldWarmNodeApi) {
+                        await warmResolveApiOrigin();
+                    }
                     const webhookConfigured = (driveWebhookInput.value || '').trim();
                     let shareUrl = null;
 
@@ -2459,11 +2511,13 @@
                         const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
                         shareUrl = uploadInfo.downloadUrl;
                     } else {
-                        try {
-                            const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
-                            shareUrl = uploadInfo.downloadUrl;
-                        } catch (e) {
-                            console.warn('Upload servidor (QR):', e);
+                        if (hasNodeProxy) {
+                            try {
+                                const uploadInfo = await uploadVideoForQr(blobForUpload, extension);
+                                shareUrl = uploadInfo.downloadUrl;
+                            } catch (e) {
+                                console.warn('Upload servidor (QR):', e);
+                            }
                         }
                         if (!shareUrl && webhookConfigured) {
                             shareUrl = await publishLinkViaDrive();
@@ -2626,6 +2680,8 @@
         function warnGithubPagesNeedsPublicNode() {
             const h = String(location.hostname || '').toLowerCase();
             if (!isStaticPagesHost(h)) return;
+            const mode = (localStorage.getItem(SHARE_MODE_KEY) || 'auto').trim();
+            if (mode === 'drive') return;
             const raw = (localStorage.getItem(API_BACKEND_KEY) || '').trim();
             if (!raw || /localhost|127\.0\.0\.1/i.test(raw)) {
                 showNotice(
@@ -2637,8 +2693,16 @@
         window.addEventListener('load', () => {
             syncQueuedDriveUploads();
             renderHistory();
-            warmResolveApiOrigin().catch(() => {});
-            refreshUploadFolderPath().catch(() => {});
+            const staticHost = isStaticPagesHost(location.hostname || '');
+            const hasNodeBackend = hasUsableConfiguredNodeBackend();
+            if (!staticHost || hasNodeBackend) {
+                warmResolveApiOrigin().catch(() => {});
+            }
+            if (!staticHost || hasNodeBackend) {
+                refreshUploadFolderPath().catch(() => {});
+            } else {
+                renderUploadFolderStatus(false, 'No GitHub Pages informe a URL do Node para consultar a pasta local.');
+            }
             warnGithubPagesNeedsPublicNode();
             if (!window.crossOriginIsolated) {
                 showNotice(

@@ -36,6 +36,22 @@ As configuracoes foram separadas em:
 4. Abra esse endereco no navegador do celular.
 5. Se nao abrir, libere a porta `8080` no firewall do Windows.
 
+### GitHub Pages (MK360 publicado)
+
+No site [`https://claudinhomaceio.github.io/MK360/`](https://claudinhomaceio.github.io/MK360/) o app agora aplica padrao automatico:
+
+- define o modo de partilha como `drive`
+- evita consultar `/api/server-info` automaticamente quando nao houver backend Node configurado
+
+Assim, o QR tende a usar o link do Google Drive sem depender de endpoint `/api/upload` no GitHub Pages.
+
+### Limitação técnica no GitHub Pages
+
+Em `github.io`, o browser normalmente nao ativa `SharedArrayBuffer` (sem COOP/COEP), entao:
+
+- o FFmpeg pode nao converter para MP4;
+- o app entra em modo compativel e segue com ficheiro `WEBM` para manter o QR e a partilha.
+
 ## 5) Certificado HTTPS (opcional, recomendado)
 
 Crie a pasta `certs` e adicione:
