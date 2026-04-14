@@ -538,6 +538,12 @@
                     </select>
                 </div>
                 <div class="space-y-1 pt-2 border-t border-white/10">
+                    <label class="block field-label">Onde os vídeos estão sendo salvos (Node)</label>
+                    <input type="text" id="uploadFolderPathInput" readonly placeholder="Clique em Ver pasta de vídeos" class="w-full p-3 rounded-xl font-bold bg-slate-900/70 border border-white/10 text-slate-200">
+                    <button id="refreshUploadFolderBtn" class="btn-ghost">Ver pasta de vídeos</button>
+                    <p id="uploadFolderStatus" class="text-[11px] text-slate-400 font-bold">Pasta de vídeos ainda não consultada.</p>
+                </div>
+                <div class="space-y-1 pt-2 border-t border-white/10">
                     <label class="block field-label">Google Drive — envio automático</label>
                     <p class="text-[10px] text-slate-400 mb-2 leading-relaxed">Após cada vídeo finalizado, o ficheiro é enviado <strong class="text-slate-300">automaticamente</strong> para a pasta <a href="https://drive.google.com/drive/folders/1WCKCxmsSSHwkAqmn2V4sJYPeHHetlIiq?usp=sharing" target="_blank" rel="noopener noreferrer" class="text-cyan-400 underline font-bold">MK360 no Drive</a> (configurada no <code class="text-yellow-200/90">google-apps-script-drive.gs</code>).</p>
                     <label class="block field-label">URL do Web App (Apps Script)</label>
@@ -714,6 +720,9 @@
         const saveDriveBtn = document.getElementById('saveDriveBtn');
         const testDriveBtn = document.getElementById('testDriveBtn');
         const driveConnectStatus = document.getElementById('driveConnectStatus');
+        const uploadFolderPathInput = document.getElementById('uploadFolderPathInput');
+        const refreshUploadFolderBtn = document.getElementById('refreshUploadFolderBtn');
+        const uploadFolderStatus = document.getElementById('uploadFolderStatus');
         const cameraZoomSelect = document.getElementById('cameraZoomSelect');
         const exportSpeedSelect = document.getElementById('exportSpeedSelect');
         const installBtn = document.getElementById('installBtn');
@@ -886,6 +895,45 @@
             driveConnectStatus.innerText = message;
         }
 
+        function renderUploadFolderStatus(ok, message) {
+            if (!uploadFolderStatus) return;
+            uploadFolderStatus.className = ok
+                ? 'text-[11px] text-emerald-300 font-bold'
+                : 'text-[11px] text-slate-400 font-bold';
+            uploadFolderStatus.innerText = message;
+        }
+
+        async function refreshUploadFolderPath() {
+            if (!uploadFolderPathInput) return;
+            if (!isHttpContext) {
+                renderUploadFolderStatus(false, 'Abra em http://localhost:8080 para consultar a pasta.');
+                return;
+            }
+            try {
+                if (refreshUploadFolderBtn) {
+                    refreshUploadFolderBtn.disabled = true;
+                    refreshUploadFolderBtn.innerText = 'Consultando...';
+                }
+                await warmResolveApiOrigin();
+                const infoUrl = new URL('/api/server-info', resolveApiOrigin()).href;
+                const response = await fetch(infoUrl, { method: 'GET', cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const info = await response.json().catch(() => ({}));
+                const folder = String(info.uploadDir || '').trim();
+                if (!folder) throw new Error('Servidor não informou a pasta de vídeos.');
+                uploadFolderPathInput.value = folder;
+                renderUploadFolderStatus(true, 'Pasta local de vídeos carregada com sucesso.');
+            } catch (error) {
+                uploadFolderPathInput.value = '';
+                renderUploadFolderStatus(false, `Não foi possível consultar: ${error.message || error}`);
+            } finally {
+                if (refreshUploadFolderBtn) {
+                    refreshUploadFolderBtn.disabled = false;
+                    refreshUploadFolderBtn.innerText = 'Ver pasta de vídeos';
+                }
+            }
+        }
+
         function pingDriveJsonp(webhookBase) {
             return new Promise((resolve, reject) => {
                 const cb = 'mk360jsonp_' + Date.now();
@@ -1040,6 +1088,7 @@
             apiBackendUrlInput.addEventListener('change', () => {
                 localStorage.setItem(API_BACKEND_KEY, apiBackendUrlInput.value.trim());
                 invalidateApiOriginCache();
+                refreshUploadFolderPath().catch(() => {});
                 showNotice('URL do servidor Node salva.');
             });
         }
@@ -1078,6 +1127,11 @@
             renderDriveStatus(false, 'Webhook salvo. Clique em Testar Conexão.');
             showNotice("Configuração do Drive salva.");
         };
+        if (refreshUploadFolderBtn) {
+            refreshUploadFolderBtn.onclick = () => {
+                refreshUploadFolderPath().catch(() => {});
+            };
+        }
         testDriveBtn.onclick = testDriveConnection;
         if (driveWebhookInput.value.trim()) {
             renderDriveStatus(false, 'Webhook carregado. Clique em Testar Conexão.');
@@ -2584,6 +2638,7 @@
             syncQueuedDriveUploads();
             renderHistory();
             warmResolveApiOrigin().catch(() => {});
+            refreshUploadFolderPath().catch(() => {});
             warnGithubPagesNeedsPublicNode();
             if (!window.crossOriginIsolated) {
                 showNotice(

@@ -5,41 +5,21 @@ const path = require("path");
 const url = require("url");
 const os = require("os");
 const crypto = require("crypto");
-
-const HOST = "0.0.0.0";
-const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
-const HTTPS_PORT = Number(process.env.HTTPS_PORT || 8443);
-const MAX_UPLOAD_SIZE = 300 * 1024 * 1024;
-/** JSON enviado ao proxy do Drive (base64 + metadados). Apps Script costuma falhar acima de ~45–50 MB. */
-const MAX_DRIVE_PROXY_JSON = 52 * 1024 * 1024;
-
-const ROOT_DIR = __dirname;
-const TLS_KEY_PATH = path.join(ROOT_DIR, "certs", "localhost-key.pem");
-const TLS_CERT_PATH = path.join(ROOT_DIR, "certs", "localhost.pem");
-const UPLOAD_DIR = path.join(ROOT_DIR, "uploads");
-/** Origem pública (ex.: https://mk360.seudominio.com) para links de /download no QR. Evita localhost quando o upload chega via túnel/proxy. */
-const MK360_PUBLIC_ORIGIN = String(process.env.MK360_PUBLIC_ORIGIN || "")
-  .trim()
-  .replace(/\/$/, "");
-
-const MIME_TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".ico": "image/x-icon",
-  ".wasm": "application/wasm"
-};
+const {
+  ROOT_DIR,
+  HOST,
+  HTTP_PORT,
+  HTTPS_PORT,
+  TLS_KEY_PATH,
+  TLS_CERT_PATH,
+  UPLOAD_DIR,
+  MK360_PUBLIC_ORIGIN
+} = require("./config/app-config");
+const {
+  MAX_UPLOAD_SIZE,
+  MAX_DRIVE_PROXY_JSON,
+  MIME_TYPES
+} = require("./config/video-config");
 
 /**
  * @param {import("http").ServerResponse} res
@@ -239,7 +219,8 @@ function handleRequest(req, res) {
     return apiJson(req, res, 200, {
       origin: `${protocol}://${hostHeader}`,
       lanOrigin: `http://${getLanIPv4()}:${HTTP_PORT}`,
-      publicDownloadOrigin: MK360_PUBLIC_ORIGIN || null
+      publicDownloadOrigin: MK360_PUBLIC_ORIGIN || null,
+      uploadDir: UPLOAD_DIR
     });
   }
 

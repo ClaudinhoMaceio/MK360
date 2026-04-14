@@ -6,12 +6,13 @@ Este projeto agora inclui um servidor local em JavaScript (`server.js`) com cabe
 
 - Node.js instalado
 
-## 2) Como iniciar
+## 2) Instalar e iniciar (Node.js)
 
 No terminal, dentro da pasta do projeto:
 
 ```powershell
-node server.js
+npm install
+npm start
 ```
 
 Sera exibido:
@@ -19,7 +20,23 @@ Sera exibido:
 - `http://localhost:8080` (sempre)
 - `https://localhost:8443` (somente se houver certificado em `certs/`)
 
-## 3) Certificado HTTPS (opcional, recomendado)
+## 3) Configuracoes separadas
+
+As configuracoes foram separadas em:
+
+- `config/app-config.js` -> configuracoes gerais do servidor (host, portas, TLS, origem publica e pasta de uploads)
+- `config/video-config.js` -> configuracoes de video e upload (limites de tamanho e MIME types)
+- Na tela de configuracoes do app, use o botao `Ver pasta de videos` para ver o caminho exato onde os ficheiros estao sendo salvos no Node.
+
+## 4) Usar no celular (mobile)
+
+1. Conecte PC e celular na mesma rede Wi-Fi.
+2. Inicie o projeto com `npm start`.
+3. No terminal, use o endereco `HTTP Rede` exibido (ex.: `http://192.168.0.10:8080`).
+4. Abra esse endereco no navegador do celular.
+5. Se nao abrir, libere a porta `8080` no firewall do Windows.
+
+## 5) Certificado HTTPS (opcional, recomendado)
 
 Crie a pasta `certs` e adicione:
 
@@ -33,13 +50,13 @@ mkcert -install
 mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1
 ```
 
-## 4) Cabecalhos aplicados automaticamente
+## 6) Cabecalhos aplicados automaticamente
 
 - `Cross-Origin-Opener-Policy: same-origin`
 - `Cross-Origin-Embedder-Policy: credentialless`
 - `Cross-Origin-Resource-Policy: cross-origin`
 
-## 5) Observacao importante
+## 7) Observacao importante
 
 Mesmo sem HTTPS, `http://localhost` costuma funcionar como contexto seguro em desenvolvimento.
 Para ambiente de producao, use HTTPS real.
