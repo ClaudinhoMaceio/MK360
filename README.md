@@ -36,6 +36,21 @@ As configuracoes foram separadas em:
 4. Abra esse endereco no navegador do celular.
 5. Se nao abrir, libere a porta `8080` no firewall do Windows.
 
+### Atalho 1 clique (Node + Tunnel)
+
+Para abrir tudo automaticamente no Windows, execute:
+
+- `iniciar-mk360-com-tunel.bat`
+
+Ele abre duas janelas:
+
+- `MK360 Node` (npm start)
+- `MK360 Tunnel` (cloudflared tunnel --url http://localhost:8080)
+- navegador no site publicado `https://claudinhomaceio.github.io/MK360/`
+
+Depois, copie a URL `https://*.trycloudflare.com` mostrada no terminal do Tunnel
+e cole em **URL publica do server.js** no site publicado.
+
 ### GitHub Pages (MK360 publicado)
 
 No site [`https://claudinhomaceio.github.io/MK360/`](https://claudinhomaceio.github.io/MK360/) o app agora aplica padrao automatico:
@@ -51,6 +66,7 @@ Em `github.io`, o browser normalmente nao ativa `SharedArrayBuffer` (sem COOP/CO
 
 - o FFmpeg pode nao converter para MP4;
 - o app entra em modo compativel e segue com ficheiro `WEBM` para manter o QR e a partilha.
+- o upload direto para `script.google.com` pode ser bloqueado por CORS; para gerar QR/link publico com Drive, use URL HTTPS de um Node publico com proxy `/api/drive-upload`.
 
 ### Atualizacao do site publicado (cache)
 

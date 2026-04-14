@@ -2105,6 +2105,11 @@
                         body: innerJson
                     });
                 } catch (e) {
+                    if (staticHost && !hasNodeProxy) {
+                        throw new Error(
+                            'Google Apps Script bloqueou CORS no browser. Para gerar QR/link público no GitHub Pages, configure URL HTTPS de um Node público no campo do servidor (proxy /api/drive-upload).'
+                        );
+                    }
                     throw new Error('Falha ao enviar para o Drive. Verifique o webhook /exec publicado e acesso público.');
                 }
             }
@@ -2457,6 +2462,7 @@
             };
             let shareUrlForHistory = null;
             let videoAlreadyOnDriveForSharing = false;
+            let drivePublishErrorMessage = "";
             if (!blobForUpload) {
                 qrMessage.innerText = "Vídeo pronto para baixar neste aparelho.";
                 const localFileName = getSafeFileName(extension);
@@ -2504,6 +2510,7 @@
                             const u = drivePublicViewUrl(dr.payload);
                             return u || null;
                         } catch (e) {
+                            drivePublishErrorMessage = String(e && e.message ? e.message : e || '');
                             console.warn('Drive (link público):', e);
                             return null;
                         }
@@ -2531,6 +2538,9 @@
                     }
 
                     if (!shareUrl) {
+                        if (drivePublishErrorMessage) {
+                            throw new Error(drivePublishErrorMessage);
+                        }
                         throw new Error('Sem link público: configure a URL do servidor Node em site estático, ou o webhook do Drive, ou o modo “Só Google Drive”.');
                     }
 
@@ -2583,9 +2593,15 @@
 
             if (blobForUpload) {
                 const finalFileName = getSafeFileName(extension);
+                const staticHost = isStaticPagesHost(location.hostname || '');
+                const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
                 try {
                     if (videoAlreadyOnDriveForSharing) {
                         driveStatusMessage.innerText = "Drive: vídeo já está na pasta; o QR e as partilhas usam o link público do mesmo ficheiro.";
+                        driveStatusMessage.classList.remove('hidden');
+                    } else if (staticHost && !hasNodeProxy) {
+                        driveStatusMessage.innerText =
+                            "Drive: upload direto foi bloqueado por CORS no browser. Para QR público, configure URL HTTPS de um Node com proxy /api/drive-upload.";
                         driveStatusMessage.classList.remove('hidden');
                     } else if (!navigator.onLine) {
                         await queueDriveUpload(blobForUpload, finalFileName, extension);
