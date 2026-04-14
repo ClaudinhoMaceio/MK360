@@ -983,12 +983,6 @@
                 return false;
             }
             try {
-                assertPublicNodeConfiguredForStaticHost();
-            } catch (e) {
-                renderDriveStatus(false, e.message || String(e));
-                return false;
-            }
-            try {
                 testDriveBtn.disabled = true;
                 testDriveBtn.innerText = 'Testando...';
                 const staticHost = isStaticPagesHost(location.hostname || '');
@@ -2069,8 +2063,11 @@
             const webhook = (driveWebhookInput.value || "").trim();
             if (!webhook) return { skipped: true, reason: "Webhook não configurado" };
             if (!isHttpContext) return { skipped: true, reason: "Necessário abrir em HTTP/HTTPS" };
-            assertPublicNodeConfiguredForStaticHost();
-            await warmResolveApiOrigin();
+            const staticHost = isStaticPagesHost(location.hostname || '');
+            const hasNodeProxy = !staticHost || hasUsableConfiguredNodeBackend();
+            if (hasNodeProxy) {
+                await warmResolveApiOrigin();
+            }
             const dataBase64 = await blobToBase64ForDrive(blob);
             const inner = {
                 action: 'upload',
@@ -2080,17 +2077,19 @@
                 dataBase64
             };
             const innerJson = JSON.stringify(inner);
-            const apiOrigin = resolveApiOrigin();
-            const proxyUrl = new URL('/api/drive-upload', apiOrigin).href;
             let response = null;
-            try {
-                response = await fetch(proxyUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ webhook, ...inner })
-                });
-            } catch (_) {
-                response = null;
+            if (hasNodeProxy) {
+                const apiOrigin = resolveApiOrigin();
+                const proxyUrl = new URL('/api/drive-upload', apiOrigin).href;
+                try {
+                    response = await fetch(proxyUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ webhook, ...inner })
+                    });
+                } catch (_) {
+                    response = null;
+                }
             }
             if (!response || response.status === 404) {
                 try {
@@ -2100,7 +2099,7 @@
                         body: innerJson
                     });
                 } catch (e) {
-                    throw new Error('Configure em Configurações a URL pública do servidor Node (proxy /api/drive-upload) ou verifique o webhook.');
+                    throw new Error('Falha ao enviar para o Drive. Verifique o webhook /exec publicado e acesso público.');
                 }
             }
             if (!response.ok) {
